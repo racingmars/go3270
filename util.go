@@ -9,13 +9,17 @@ import (
 	"io"
 )
 
+// Enable go3270 library debugging by setting Debug to an io.Writer.
+// Disable debugging by setting it to nil (the default value).
 var Debug io.Writer
 
+// debugf will print to the Debug io.Writer if it isn't nil.
 func debugf(format string, a ...interface{}) {
 	if Debug == nil {
 		return
 	}
 
+	fmt.Fprintf(Debug, "dbg: ")
 	fmt.Fprintf(Debug, format, a...)
 }
 

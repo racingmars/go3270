@@ -6,7 +6,6 @@ package go3270
 
 import (
 	"bytes"
-	"fmt"
 	"net"
 )
 
@@ -41,6 +40,10 @@ type Field struct {
 // names,
 type Screen []Field
 
+// fieldmap is a map of field buffer addresses and the corresponding field
+// name.
+type fieldmap map[int]string
+
 // ShowScreen writes the 3270 datastream for the screen to a connection.
 // Fields that aren't valid (e.g. outside of the 24x80 screen) are silently
 // ignored. If a named field has an entry in the values map, the content of
@@ -53,7 +56,7 @@ func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
 	conn net.Conn) (Response, error) {
 
 	var b bytes.Buffer
-	var fieldmap = make(map[int]string) // field buffer positions -> name
+	var fm = make(fieldmap) // field buffer positions -> name
 
 	b.WriteByte(0xf5) // Erase/Write to terminal
 	b.WriteByte(0xc3) // WCC = Reset, Unlock Keyboard, Reset MDT
@@ -80,10 +83,13 @@ func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
 			b.Write(a2e([]byte(content)))
 		}
 
-		// If a writable field, add it to the field map
+		// If a writable field, add it to the field map. We add 1 to bufaddr
+		// to make the value match the reported position (I'm guessing it's
+		// because we get the position of the field's first input position,
+		// not the position of the field attribute byte).
 		if fld.Write {
 			bufaddr := fld.Row*80 + fld.Col
-			fieldmap[bufaddr] = fld.Name
+			fm[bufaddr+1] = fld.Name
 		}
 	}
 
@@ -99,28 +105,12 @@ func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
 	b.Write([]byte{0xff, 0xef}) // Telnet IAC EOR
 
 	// Now write the datastream to the writer, returning any potential error.
-	if Debug != nil {
-		fmt.Fprintf(Debug, "%x\n", b.Bytes())
-	}
+	debugf("sending datastream: %x\n", b.Bytes())
 	if _, err := conn.Write(b.Bytes()); err != nil {
 		return Response{}, err
 	}
 
-	// Now wait for the response. We want to read bytes that start with an AID
-	// and end with 0xFFEF.
-	// for {
-	// 	rbuf := make([]byte, 1)
-	// 	n, err := conn.Read(rbuf)
-	// 	if err != nil {
-	// 		return Response{}, err
-	// 	}
-	// 	for i := 0; i < n; i++ {
-	// 		fmt.Printf("%x", rbuf[i])
-	// 	}
-	// 	fmt.Printf("\n")
-	// }
-
-	return readResponse(conn)
+	return readResponse(conn, fm)
 }
 
 // sba is the "set buffer address" 3270 command.

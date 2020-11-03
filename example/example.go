@@ -13,16 +13,41 @@ import (
 )
 
 func init() {
+	// put the go3270 library in debug mode
 	go3270.Debug = os.Stderr
 }
 
-// A Screen is an array of go3270.Field structs:
-var loginScreen = go3270.Screen{
-	{Row: 0, Col: 30, Intense: true, Content: "3270 Example Screen"},
-	{Row: 1, Col: 0, Content: "First Name  . . ."},
-	{Row: 1, Col: 18, Name: "fname", Write: true, Content: "Test"},
-	{Row: 2, Col: 0, Content: "Last Name . . . ."},
-	{Row: 2, Col: 18, Name: "lname", Write: true},
+// A Screen is an array of go3270.Field structs. We will build two screens,
+// a query screen and a result screen:
+
+var screen1 = go3270.Screen{
+	{Row: 0, Col: 27, Intense: true, Content: "3270 Example Application"},
+	{Row: 2, Col: 0, Content: "Welcome to the go3270 example application. Please enter your name."},
+	{Row: 4, Col: 0, Content: "First Name  . . ."},
+	{Row: 4, Col: 19, Name: "fname", Write: true},
+	{Row: 4, Col: 40}, // field "stop" character
+	{Row: 5, Col: 0, Content: "Last Name . . . ."},
+	{Row: 5, Col: 19, Name: "lname", Write: true},
+	{Row: 5, Col: 40}, // field "stop" character,
+	{Row: 7, Col: 0, Content: "Press"},
+	{Row: 7, Col: 6, Intense: true, Content: "enter"},
+	{Row: 7, Col: 12, Content: "to submit your name."},
+	{Row: 22, Col: 0, Content: "PF3 Exit"},
+}
+
+var screen2 = go3270.Screen{
+	{Row: 0, Col: 27, Intense: true, Content: "3270 Example Application"},
+	{Row: 2, Col: 0, Content: "Thank you for submitting your name. Here's what I know:"},
+	{Row: 4, Col: 0, Content: "Your first name is"},
+	{Row: 4, Col: 19, Name: "fname"}, // We're giving this field a name to replace its value at runtime
+	{Row: 5, Col: 0, Content: "And your last name is"},
+	{Row: 5, Col: 22, Name: "lname"}, // We're giving this field a name to replace its value at runtime
+	{Row: 7, Col: 0, Content: "Press"},
+	{Row: 7, Col: 6, Intense: true, Content: "enter"},
+	{Row: 7, Col: 12, Content: "to enter your name again, or"},
+	{Row: 7, Col: 41, Intense: true, Content: "PF3"},
+	{Row: 7, Col: 45, Content: "to quit and disconnect."},
+	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
 
 func main() {
@@ -30,6 +55,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println("LISTENING ON PORT 3270 FOR CONNECTIONS")
+	fmt.Println("Press Ctrl-C to end server.")
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -39,15 +66,54 @@ func main() {
 	}
 }
 
+// handle is the handler for individual user connections.
 func handle(conn net.Conn) {
 	defer conn.Close()
 
+	// Always begin new connection by negotiating the telnet options
 	go3270.NegotiateTelnet(conn)
-	_, err := go3270.ShowScreen(loginScreen, nil, 1, 19, conn)
-	if err != nil {
-		panic(err)
+
+	// We will loop forever until the user quits with PF3
+	var fieldValues map[string]string
+	for {
+		// Show the first screen, and wait to get a client response. Place
+		// the cursor at the beginning of the first input field.
+		// We're passing in the fieldValues map to carry values over from
+		// the previous submission. We could pass nil, instead, if always want
+		// the fields to start out blank.
+		response, err := go3270.ShowScreen(screen1, fieldValues, 4, 20, conn)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		// If the user pressed PF3, exit
+		if response.AID == go3270.AIDPF3 {
+			break
+		}
+
+		// If anything OTHER than "Enter", restart the loop
+		if response.AID != go3270.AIDEnter {
+			continue
+		}
+
+		// User must have pressed "Enter", so let's display the second screen,
+		// echoing their responses back to them.
+		fieldValues = response.Values
+		response, err = go3270.ShowScreen(screen2, fieldValues, 0, 0, conn)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		// If the user pressed PF3, exit
+		if response.AID == go3270.AIDPF3 {
+			break
+		}
+
+		// If they pressed anything else, just let the loop continue...
+		continue
 	}
 
 	fmt.Println("Connection closed")
-
 }

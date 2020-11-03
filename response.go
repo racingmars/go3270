@@ -61,13 +61,20 @@ const (
 	AIDClear AID = 0x6D
 )
 
-func readResponse(c net.Conn) (Response, error) {
+func readResponse(c net.Conn, fm fieldmap) (Response, error) {
 	var r Response
 	aid, err := readAID(c)
 	if err != nil {
 		return r, err
 	}
 	r.AID = aid
+
+	// If the use pressed clear, we should return now
+	// TODO: actually, we should consume the 0xffef, but that will
+	// currently get taken care of in our next AID search.
+	if r.AID == AIDClear {
+		return r, nil
+	}
 
 	row, col, _, err := readPosition(c)
 	if err != nil {
@@ -76,9 +83,12 @@ func readResponse(c net.Conn) (Response, error) {
 	r.Col = col
 	r.Row = row
 
-	if err = readFields(c); err != nil {
+	var fieldValues map[string]string
+	if fieldValues, err = readFields(c, fm); err != nil {
 		return r, err
 	}
+
+	r.Values = fieldValues
 
 	return r, nil
 }
@@ -126,41 +136,42 @@ func readPosition(c net.Conn) (row, col, addr int, err error) {
 	return row, col, addr, nil
 }
 
-func readFields(c net.Conn) error {
+func readFields(c net.Conn, fm fieldmap) (map[string]string, error) {
 	buf := make([]byte, 1)
 	var infield bool
 	var fieldpos int
 	var fieldval bytes.Buffer
+	var values = make(map[string]string)
 	var err error
 
 	// consume bytes until we get 0xffef
 	for {
 		// Read a byte
 		if _, err = c.Read(buf); err != nil {
-			return err
+			return nil, err
 		}
 
 		// Check for end of data stream (0xffef)
 		if buf[0] == 0xff {
 			// Finish the current field
 			if infield {
-				// TODO
 				debugf("Field %d: %s\n", fieldpos, e2a(fieldval.Bytes()))
+				handleField(fieldpos, fieldval.Bytes(), fm, values)
 			}
 
 			// consume the next byte, which is probably 0xef
 			if _, err = c.Read(buf); err != nil {
-				return err
+				return nil, err
 			}
-			return nil
+			return values, nil
 		}
 
 		// No? Check for start-of-field
 		if buf[0] == 0x11 {
 			// Finish the previous field, if necessary
 			if infield {
-				// TODO
 				debugf("Field %d: %s\n", fieldpos, e2a(fieldval.Bytes()))
+				handleField(fieldpos, fieldval.Bytes(), fm, values)
 			}
 			// Start a new field
 			infield = true
@@ -168,7 +179,7 @@ func readFields(c net.Conn) error {
 			fieldpos = 0
 
 			if _, _, fieldpos, err = readPosition(c); err != nil {
-				return err
+				return nil, err
 			}
 			continue
 		}
@@ -179,8 +190,20 @@ func readFields(c net.Conn) error {
 			continue
 		}
 		fieldval.WriteByte(buf[0])
-
 	}
+}
+
+func handleField(addr int, value []byte, fm fieldmap, values map[string]string) bool {
+	name, ok := fm[addr]
+
+	// Field is not present in the fieldmap
+	if !ok {
+		return false
+	}
+
+	// Otherwise, populate the value
+	values[name] = string(e2a(value))
+	return true
 }
 
 // decodeBufAddr decodes a raw 2-byte encoded buffer address and returns the
