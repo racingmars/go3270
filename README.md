@@ -19,6 +19,10 @@ Usage
 
 See the example folder for a quick demonstration of using the library.
 
+Here's [a video introducing the library][introVideo] as well.
+
+[introVideo]: https://www.youtube.com/watch?v=h9XTjup5W5U
+
 Future Enhancements
 -------------------
 
