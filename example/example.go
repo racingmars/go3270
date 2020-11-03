@@ -7,14 +7,22 @@ package main
 import (
 	"fmt"
 	"net"
+	"os"
 
 	"github.com/racingmars/go3270"
 )
 
+func init() {
+	go3270.Debug = os.Stderr
+}
+
+// A Screen is an array of go3270.Field structs:
 var loginScreen = go3270.Screen{
-	{Row: 0, Col: 0, Intense: true, Content: "Testing . . ."},
-	{Row: 1, Col: 0, Content: "Name    . . ."},
-	{Row: 1, Col: 14, Name: "name", Write: true},
+	{Row: 0, Col: 30, Intense: true, Content: "3270 Example Screen"},
+	{Row: 1, Col: 0, Content: "First Name  . . ."},
+	{Row: 1, Col: 18, Name: "fname", Write: true, Content: "Test"},
+	{Row: 2, Col: 0, Content: "Last Name . . . ."},
+	{Row: 2, Col: 18, Name: "lname", Write: true},
 }
 
 func main() {
@@ -35,21 +43,11 @@ func handle(conn net.Conn) {
 	defer conn.Close()
 
 	go3270.NegotiateTelnet(conn)
-	err := go3270.WriteScreen(loginScreen, 10, 15, conn)
+	_, err := go3270.ShowScreen(loginScreen, nil, 1, 19, conn)
 	if err != nil {
 		panic(err)
 	}
 
-	for {
-		rbuf := make([]byte, 255)
-		n, err := conn.Read(rbuf)
-		if err != nil {
-			break
-		}
-		for i := 0; i < n; i++ {
-			fmt.Printf("%x", rbuf[i])
-		}
-		fmt.Printf("\n")
-	}
+	fmt.Println("Connection closed")
 
 }

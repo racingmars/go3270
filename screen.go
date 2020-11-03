@@ -7,7 +7,7 @@ package go3270
 import (
 	"bytes"
 	"fmt"
-	"io"
+	"net"
 )
 
 // Field is a field on the 3270 screen.
@@ -41,13 +41,19 @@ type Field struct {
 // names,
 type Screen []Field
 
-// WriteScreen writes the 3270 datastream for the screen to a writer. Fields
-// that aren't valid (e.g. outside of the 24x80 screen) are silently ignored.
-// After writing the fields, the curser is set to crow, ccol, which are
-// 0-based positions: row 0-23 and col 0-79. Errors from io.Writer.Write()
-// are returned if encountered.
-func WriteScreen(screen Screen, crow, ccol int, w io.Writer) error {
+// ShowScreen writes the 3270 datastream for the screen to a connection.
+// Fields that aren't valid (e.g. outside of the 24x80 screen) are silently
+// ignored. If a named field has an entry in the values map, the content of
+// the field from the values map is used INSTEAD OF the Field struct's Content
+// field. The values map may be nil if no overrides are needed. After writing
+// the fields, the cursor is set to crow, ccol, which are 0-based positions:
+// row 0-23 and col 0-79. Errors from conn.Write() are returned if
+// encountered.
+func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
+	conn net.Conn) (Response, error) {
+
 	var b bytes.Buffer
+	var fieldmap = make(map[int]string) // field buffer positions -> name
 
 	b.WriteByte(0xf5) // Erase/Write to terminal
 	b.WriteByte(0xc3) // WCC = Reset, Unlock Keyboard, Reset MDT
@@ -61,8 +67,23 @@ func WriteScreen(screen Screen, crow, ccol int, w io.Writer) error {
 
 		b.Write(sba(fld.Row, fld.Col))
 		b.Write(sf(fld.Write, fld.Intense))
-		if fld.Content != "" {
-			b.Write(a2e([]byte(fld.Content)))
+
+		// Use fld.Content, unless the field is named and appears in the
+		// value map.
+		content := fld.Content
+		if fld.Name != "" {
+			if val, ok := values[fld.Name]; ok {
+				content = val
+			}
+		}
+		if content != "" {
+			b.Write(a2e([]byte(content)))
+		}
+
+		// If a writable field, add it to the field map
+		if fld.Write {
+			bufaddr := fld.Row*80 + fld.Col
+			fieldmap[bufaddr] = fld.Name
 		}
 	}
 
@@ -73,14 +94,33 @@ func WriteScreen(screen Screen, crow, ccol int, w io.Writer) error {
 	if ccol < 0 || ccol > 79 {
 		ccol = 0
 	}
-	//b.Write(ic(crow, ccol))
+	b.Write(ic(crow, ccol))
 
 	b.Write([]byte{0xff, 0xef}) // Telnet IAC EOR
 
 	// Now write the datastream to the writer, returning any potential error.
-	fmt.Printf("%x\n", b.Bytes())
-	_, err := w.Write(b.Bytes())
-	return err
+	if Debug != nil {
+		fmt.Fprintf(Debug, "%x\n", b.Bytes())
+	}
+	if _, err := conn.Write(b.Bytes()); err != nil {
+		return Response{}, err
+	}
+
+	// Now wait for the response. We want to read bytes that start with an AID
+	// and end with 0xFFEF.
+	// for {
+	// 	rbuf := make([]byte, 1)
+	// 	n, err := conn.Read(rbuf)
+	// 	if err != nil {
+	// 		return Response{}, err
+	// 	}
+	// 	for i := 0; i < n; i++ {
+	// 		fmt.Printf("%x", rbuf[i])
+	// 	}
+	// 	fmt.Printf("\n")
+	// }
+
+	return readResponse(conn)
 }
 
 // sba is the "set buffer address" 3270 command.
@@ -97,6 +137,11 @@ func sf(write, intense bool) []byte {
 	result[0] = 0x1d // SF
 	if !write {
 		result[1] |= 1 << 5 // set "bit 2"
+	} else {
+		// The MDT bit -- we always want writable field values returned,
+		// even if unchanged
+		result[1] |= 1 // set "bit 7"
+
 	}
 	if intense {
 		result[1] |= 1 << 3 // set "bit 4"
@@ -126,11 +171,15 @@ func getpos(row, col int) []byte {
 	return result
 }
 
-// codes are the 3270 control character I/O codes, pre-computed as provided
-// at http://www.tommysprinkle.com/mvs/P3270/iocodes.htm
-var codes = []byte{0x40, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8,
-	0xc9, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50, 0xd1, 0xd2, 0xd3, 0xd4,
-	0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f, 0x60,
-	0x61, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0x6a, 0x6b, 0x6c,
-	0x6d, 0x6e, 0x6f, 0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8,
-	0xf9, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f}
+type readerState int
+
+const (
+	stateNone readerState = iota
+	stateGotAID
+	stateGotFirstAddr
+	stateGotSecondAddr
+	stateInField
+	stateGotFirstFieldAddr
+	stateGotSecondFieldAddr
+	stateGot
+)
