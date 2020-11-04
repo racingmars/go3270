@@ -25,10 +25,10 @@ var screen1 = go3270.Screen{
 	{Row: 0, Col: 27, Intense: true, Content: "3270 Example Application"},
 	{Row: 2, Col: 0, Content: "Welcome to the go3270 example application. Please enter your name."},
 	{Row: 4, Col: 0, Content: "First Name  . . ."},
-	{Row: 4, Col: 19, Name: "fname", Write: true},
+	{Row: 4, Col: 19, Name: "fname", Write: true, Highlighting: go3270.Underscore},
 	{Row: 4, Col: 40}, // field "stop" character
 	{Row: 5, Col: 0, Content: "Last Name . . . ."},
-	{Row: 5, Col: 19, Name: "lname", Write: true},
+	{Row: 5, Col: 19, Name: "lname", Write: true, Highlighting: go3270.Underscore},
 	{Row: 5, Col: 40}, // field "stop" character,
 	{Row: 6, Col: 0, Content: "Password  . . . ."},
 	{Row: 6, Col: 19, Name: "password", Write: true, Hidden: true},
@@ -36,7 +36,7 @@ var screen1 = go3270.Screen{
 	{Row: 8, Col: 0, Content: "Press"},
 	{Row: 8, Col: 6, Intense: true, Content: "enter"},
 	{Row: 8, Col: 12, Content: "to submit your name."},
-	{Row: 10, Col: 0, Intense: true, Name: "errormsg"}, // a blank field for error messages
+	{Row: 10, Col: 0, Intense: true, Color: go3270.Red, Name: "errormsg"}, // a blank field for error messages
 	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
 
@@ -53,6 +53,8 @@ var screen2 = go3270.Screen{
 	{Row: 8, Col: 12, Content: "to enter your name again, or"},
 	{Row: 8, Col: 41, Intense: true, Content: "PF3"},
 	{Row: 8, Col: 45, Content: "to quit and disconnect."},
+	{Row: 11, Col: 0, Color: go3270.Turquoise, Highlighting: go3270.ReverseVideo, Content: "Here is a field with extended attributes."},
+	{Row: 11, Col: 42}, // remember to "stop" fields with a regular field, to clear the reverse video for example
 	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
 

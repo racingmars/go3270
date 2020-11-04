@@ -34,10 +34,43 @@ type Field struct {
 	// password input field).
 	Hidden bool
 
+	// Color is the field color. The default value is the default color.
+	Color Color
+
+	// Highlighting is the highlight attribute for the field. The default value
+	// is the default (i.e. no) highlighting.
+	Highlighting Highlight
+
 	// Name is the name of this field, which is used to get the user-entered
 	// data. All writeable fields on a screen must have a unique name.
 	Name string
 }
+
+// Color is a 3270 extended field attribute color value
+type Color byte
+
+// The valid 3270 colors
+const (
+	DefaultColor Color = 0
+	Blue         Color = 0xf1
+	Red          Color = 0xf2
+	Pink         Color = 0xf3
+	Green        Color = 0xf4
+	Turquoise    Color = 0xf5
+	Yellow       Color = 0xf6
+	White        Color = 0xf7
+)
+
+// Highlight is a 3270 extended field attribute highlighting method
+type Highlight byte
+
+// The valid 3270 highlights
+const (
+	DefaultHighlight Highlight = 0
+	Blink            Highlight = 0xf1
+	ReverseVideo     Highlight = 0xf2
+	Underscore       Highlight = 0xf4
+)
 
 // Screen is an array of Fields which compose a complete 3270 screen.
 // No checking is performed for lack of overlapping fields, unique field
@@ -73,7 +106,7 @@ func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
 		}
 
 		b.Write(sba(fld.Row, fld.Col))
-		b.Write(sf(fld.Write, fld.Intense, fld.Hidden))
+		b.Write(buildField(fld))
 
 		// Use fld.Content, unless the field is named and appears in the
 		// value map.
@@ -125,28 +158,68 @@ func sba(row, col int) []byte {
 	return result
 }
 
-// sf is the "start field" 3270 command
-func sf(write, intense, hidden bool) []byte {
-	result := make([]byte, 2)
-	result[0] = 0x1d // SF
+// buildField will return either an sf or sfe command depending for the
+// field.
+func buildField(f Field) []byte {
+	var buf bytes.Buffer
+	if f.Color == DefaultColor && f.Highlighting == DefaultHighlight {
+		// this is a traditional field, issue a normal sf command
+		buf.WriteByte(0x1d) // sf - "start field"
+		buf.WriteByte(sfAttribute(f.Write, f.Intense, f.Hidden))
+		return buf.Bytes()
+	}
+
+	// Otherwise, this needs an extended attribute field
+	buf.WriteByte(0x29)     // sfe - "start field extended"
+	var paramCount byte = 1 // we will always have the basic field attribute
+	if f.Color != DefaultColor {
+		paramCount++
+	}
+	if f.Highlighting != DefaultHighlight {
+		paramCount++
+	}
+	buf.WriteByte(paramCount)
+
+	// Write the basic field attribute
+	buf.WriteByte(0xc0)
+	buf.WriteByte(sfAttribute(f.Write, f.Intense, f.Hidden))
+
+	// Write the highlighting attribute
+	if f.Highlighting != DefaultHighlight {
+		buf.WriteByte(0x41)
+		buf.WriteByte(byte(f.Highlighting))
+	}
+
+	// Write the color attribute
+	if f.Color != DefaultColor {
+		buf.WriteByte(0x42)
+		buf.WriteByte(byte(f.Color))
+	}
+
+	return buf.Bytes()
+}
+
+// sfAttribute builds the attribute byte for the "start field" 3270 command
+func sfAttribute(write, intense, hidden bool) byte {
+	var attribute byte
 	if !write {
-		result[1] |= 1 << 5 // set "bit 2"
+		attribute |= 1 << 5 // set "bit 2"
 	} else {
 		// The MDT bit -- we always want writable field values returned,
 		// even if unchanged
-		result[1] |= 1 // set "bit 7"
+		attribute |= 1 // set "bit 7"
 
 	}
 	if intense {
-		result[1] |= 1 << 3 // set "bit 4"
+		attribute |= 1 << 3 // set "bit 4"
 	}
 	if hidden {
-		result[1] |= 1 << 3 // set "bit 4"
-		result[1] |= 1 << 2 // set "bit 5"
+		attribute |= 1 << 3 // set "bit 4"
+		attribute |= 1 << 2 // set "bit 5"
 	}
 	// Fill in top 2 bits with appropriate values
-	result[1] = codes[result[1]]
-	return result
+	attribute = codes[attribute]
+	return attribute
 }
 
 // ic is the "insert cursor" 3270 command. This function will include the
