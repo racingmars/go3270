@@ -168,16 +168,3 @@ func getpos(row, col int) []byte {
 	result[1] = codes[lo]
 	return result
 }
-
-type readerState int
-
-const (
-	stateNone readerState = iota
-	stateGotAID
-	stateGotFirstAddr
-	stateGotSecondAddr
-	stateInField
-	stateGotFirstFieldAddr
-	stateGotSecondFieldAddr
-	stateGot
-)
