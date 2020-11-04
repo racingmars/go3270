@@ -28,7 +28,7 @@ Future Enhancements
 
 I would like to add:
 
- - Extended field attribute support (e.g. color).
+ - ~~Extended field attribute support (e.g. color).~~ **Done**
  - Utility functions for easily laying out forms.
 
 Known Problems
