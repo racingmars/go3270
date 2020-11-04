@@ -30,6 +30,10 @@ type Field struct {
 	// Intense indicates this field should be displayed with high intensity.
 	Intense bool
 
+	// Hidden indicates the field content should not be displayed (e.g. a
+	// password input field).
+	Hidden bool
+
 	// Name is the name of this field, which is used to get the user-entered
 	// data. All writeable fields on a screen must have a unique name.
 	Name string
@@ -69,7 +73,7 @@ func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
 		}
 
 		b.Write(sba(fld.Row, fld.Col))
-		b.Write(sf(fld.Write, fld.Intense))
+		b.Write(sf(fld.Write, fld.Intense, fld.Hidden))
 
 		// Use fld.Content, unless the field is named and appears in the
 		// value map.
@@ -122,7 +126,7 @@ func sba(row, col int) []byte {
 }
 
 // sf is the "start field" 3270 command
-func sf(write, intense bool) []byte {
+func sf(write, intense, hidden bool) []byte {
 	result := make([]byte, 2)
 	result[0] = 0x1d // SF
 	if !write {
@@ -135,6 +139,10 @@ func sf(write, intense bool) []byte {
 	}
 	if intense {
 		result[1] |= 1 << 3 // set "bit 4"
+	}
+	if hidden {
+		result[1] |= 1 << 3 // set "bit 4"
+		result[1] |= 1 << 2 // set "bit 5"
 	}
 	// Fill in top 2 bits with appropriate values
 	result[1] = codes[result[1]]

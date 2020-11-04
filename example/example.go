@@ -30,9 +30,12 @@ var screen1 = go3270.Screen{
 	{Row: 5, Col: 0, Content: "Last Name . . . ."},
 	{Row: 5, Col: 19, Name: "lname", Write: true},
 	{Row: 5, Col: 40}, // field "stop" character,
-	{Row: 7, Col: 0, Content: "Press"},
-	{Row: 7, Col: 6, Intense: true, Content: "enter"},
-	{Row: 7, Col: 12, Content: "to submit your name."},
+	{Row: 6, Col: 0, Content: "Password  . . . ."},
+	{Row: 6, Col: 19, Name: "password", Write: true, Hidden: true},
+	{Row: 6, Col: 40}, // field "stop" character,
+	{Row: 8, Col: 0, Content: "Press"},
+	{Row: 8, Col: 6, Intense: true, Content: "enter"},
+	{Row: 8, Col: 12, Content: "to submit your name."},
 	{Row: 10, Col: 0, Intense: true, Name: "errormsg"}, // a blank field for error messages
 	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
@@ -44,11 +47,12 @@ var screen2 = go3270.Screen{
 	{Row: 4, Col: 19, Name: "fname"}, // We're giving this field a name to replace its value at runtime
 	{Row: 5, Col: 0, Content: "And your last name is"},
 	{Row: 5, Col: 22, Name: "lname"}, // We're giving this field a name to replace its value at runtime
-	{Row: 7, Col: 0, Content: "Press"},
-	{Row: 7, Col: 6, Intense: true, Content: "enter"},
-	{Row: 7, Col: 12, Content: "to enter your name again, or"},
-	{Row: 7, Col: 41, Intense: true, Content: "PF3"},
-	{Row: 7, Col: 45, Content: "to quit and disconnect."},
+	{Row: 6, Col: 0, Name: "passwordOutput"},
+	{Row: 8, Col: 0, Content: "Press"},
+	{Row: 8, Col: 6, Intense: true, Content: "enter"},
+	{Row: 8, Col: 12, Content: "to enter your name again, or"},
+	{Row: 8, Col: 41, Intense: true, Content: "PF3"},
+	{Row: 8, Col: 45, Content: "to quit and disconnect."},
 	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
 
@@ -75,13 +79,17 @@ func handle(conn net.Conn) {
 	// Always begin new connection by negotiating the telnet options
 	go3270.NegotiateTelnet(conn)
 
+	fieldValues := make(map[string]string)
+
 	// We will loop forever until the user quits with PF3
-	var fieldValues map[string]string
 mainLoop:
 	for {
 	screen1Loop:
 		for {
 			// loop until the user passes input validation, or quits
+
+			// Always reset password input to blank each time through the loop
+			fieldValues["password"] = ""
 
 			// Show the first screen, and wait to get a client response. Place
 			// the cursor at the beginning of the first input field.
@@ -129,6 +137,13 @@ mainLoop:
 		}
 
 		// Now we're ready to display screen2
+		passwordLength := len(strings.TrimSpace(fieldValues["password"]))
+		passwordPlural := "s"
+		if passwordLength == 1 {
+			passwordPlural = ""
+		}
+		fieldValues["passwordOutput"] = fmt.Sprintf("Your password was %d character%s long",
+			passwordLength, passwordPlural)
 		response, err := go3270.ShowScreen(screen2, fieldValues, 0, 0, conn)
 		if err != nil {
 			fmt.Println(err)
