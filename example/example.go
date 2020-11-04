@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/racingmars/go3270"
 )
@@ -32,6 +33,7 @@ var screen1 = go3270.Screen{
 	{Row: 7, Col: 0, Content: "Press"},
 	{Row: 7, Col: 6, Intense: true, Content: "enter"},
 	{Row: 7, Col: 12, Content: "to submit your name."},
+	{Row: 10, Col: 0, Intense: true, Name: "errormsg"}, // a blank field for error messages
 	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
 
@@ -75,32 +77,59 @@ func handle(conn net.Conn) {
 
 	// We will loop forever until the user quits with PF3
 	var fieldValues map[string]string
+mainLoop:
 	for {
-		// Show the first screen, and wait to get a client response. Place
-		// the cursor at the beginning of the first input field.
-		// We're passing in the fieldValues map to carry values over from
-		// the previous submission. We could pass nil, instead, if always want
-		// the fields to start out blank.
-		response, err := go3270.ShowScreen(screen1, fieldValues, 4, 20, conn)
-		if err != nil {
-			fmt.Println(err)
-			return
+	screen1Loop:
+		for {
+			// loop until the user passes input validation, or quits
+
+			// Show the first screen, and wait to get a client response. Place
+			// the cursor at the beginning of the first input field.
+			// We're passing in the fieldValues map to carry values over from
+			// the previous submission. We could pass nil, instead, if always want
+			// the fields to start out blank.
+			response, err := go3270.ShowScreen(screen1, fieldValues, 4, 20, conn)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+
+			// If the user pressed PF3, exit
+			if response.AID == go3270.AIDPF3 {
+				break mainLoop
+			}
+
+			// If anything OTHER than "Enter", restart the loop
+			if response.AID != go3270.AIDEnter {
+				continue screen1Loop
+			}
+
+			// User must have pressed "Enter", so let's check the input.
+			fieldValues = response.Values
+			if strings.TrimSpace(fieldValues["fname"]) == "" &&
+				strings.TrimSpace(fieldValues["lname"]) == "" {
+				fieldValues["errormsg"] = "First and Last Name fields are required."
+				continue screen1Loop
+			}
+			if strings.TrimSpace(fieldValues["fname"]) == "" {
+				fieldValues["errormsg"] = "First Name field is required."
+				continue screen1Loop
+			}
+			if strings.TrimSpace(fieldValues["lname"]) == "" {
+				fieldValues["errormsg"] = "Last Name field is required."
+				continue screen1Loop
+			}
+
+			// At this point, we know the user provided both fields and had
+			// hit enter, so we are going to reset the error message for the
+			// next time through the loop, and break out of this loop so we
+			// move on to screen 2.
+			fieldValues["errormsg"] = ""
+			break screen1Loop
 		}
 
-		// If the user pressed PF3, exit
-		if response.AID == go3270.AIDPF3 {
-			break
-		}
-
-		// If anything OTHER than "Enter", restart the loop
-		if response.AID != go3270.AIDEnter {
-			continue
-		}
-
-		// User must have pressed "Enter", so let's display the second screen,
-		// echoing their responses back to them.
-		fieldValues = response.Values
-		response, err = go3270.ShowScreen(screen2, fieldValues, 0, 0, conn)
+		// Now we're ready to display screen2
+		response, err := go3270.ShowScreen(screen2, fieldValues, 0, 0, conn)
 		if err != nil {
 			fmt.Println(err)
 			return
