@@ -69,10 +69,11 @@ func readResponse(c net.Conn, fm fieldmap) (Response, error) {
 	}
 	r.AID = aid
 
-	// If the use pressed clear, we should return now
+	// If the use pressed clear, or a PA key we should return now
 	// TODO: actually, we should consume the 0xffef, but that will
 	// currently get taken care of in our next AID search.
-	if r.AID == AIDClear {
+	if r.AID == AIDClear || r.AID == AIDPA1 || r.AID == AIDPA2 ||
+		r.AID == AIDPA3 {
 		return r, nil
 	}
 
