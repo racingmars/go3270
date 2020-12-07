@@ -17,7 +17,7 @@ Everything I know about 3270 data streams I learned from [Tommy Sprinkle's tutor
 Usage
 -----
 
-See the example folder for a quick demonstration of using the library.
+See the example folders for a quick demonstration of using the library. The examples are very similar, but example1 uses the lower-level function ShowScreen(), and example2 uses a higher-level function HandleScreen().
 
 Here's [a video introducing the library][introVideo] as well.
 
