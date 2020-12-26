@@ -35,6 +35,18 @@ func NegotiateTelnet(conn net.Conn) error {
 	return nil
 }
 
+// UnNegotiateTelnet will naively (e.g. not checking client responses) attempt
+// to restore the telnet options state to what it was before NegotiateTelnet()
+// was called.
+func UnNegotiateTelnet(conn net.Conn, timeout time.Duration) error {
+	conn.Write([]byte{iac, wont, eor, iac, wont, binary})
+	conn.Write([]byte{iac, dont, binary})
+	conn.Write([]byte{iac, dont, eor})
+	conn.Write([]byte{iac, dont, terminalType})
+	flushConnection(conn, timeout)
+	return nil
+}
+
 // flushConnection discards all bytes that it can read from conn, allowing up
 // to the duration timeout for the first byte to be read.
 func flushConnection(conn net.Conn, timeout time.Duration) error {
