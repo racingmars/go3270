@@ -4,24 +4,55 @@
 
 package go3270
 
-import "io"
+import (
+	"net"
+	"time"
+)
+
+const (
+	binary       = 0
+	send         = 1
+	se           = 240 // f0
+	sb           = 250 // fa
+	will         = 251 // fb
+	wont         = 252 // fc
+	do           = 253 // fd
+	dont         = 254 // fe
+	iac          = 255 // ff
+	terminalType = 24  // 18
+	eor          = 25  // 19
+)
 
 // NegotiateTelnet will naively (e.g. not checking client responses) negotiate
 // the options necessary for tn3270 on a new telnet connection, conn.
-func NegotiateTelnet(conn io.ReadWriter) error {
-	rbuf := make([]byte, 255)
-
-	conn.Write([]byte{0xff, 0xfd, 0x18}) // DO TermType
-	conn.Read(rbuf)
-	conn.Write([]byte{0xff, 0xfa, 0x18, 0x01, 0xff, 0xf0}) // TermType suboptions
-	conn.Read(rbuf)
-	conn.Write([]byte{0xff, 0xfd, 0x19}) // DO EOR
-	conn.Read(rbuf)
-	conn.Write([]byte{0xff, 0xfd, 0x00}) // DO Binary
-	conn.Read(rbuf)
-
-	conn.Write([]byte{0xff, 0xfb, 0x19, 0xff, 0xfb, 0x00}) // WILL binary, eor
-	conn.Read(rbuf)
-
+func NegotiateTelnet(conn net.Conn) error {
+	conn.Write([]byte{iac, do, terminalType})
+	conn.Write([]byte{iac, sb, terminalType, send, iac, se})
+	conn.Write([]byte{iac, do, eor})
+	conn.Write([]byte{iac, do, binary})
+	conn.Write([]byte{iac, will, eor, iac, will, binary})
+	flushConnection(conn, time.Second*5)
 	return nil
+}
+
+// flushConnection discards all bytes that it can read from conn, allowing up
+// to the duration timeout for the first byte to be read.
+func flushConnection(conn net.Conn, timeout time.Duration) error {
+	defer conn.SetReadDeadline(time.Time{})
+	buffer := make([]byte, 1024)
+	for {
+		conn.SetReadDeadline(time.Now().Add(timeout))
+		n, err := conn.Read(buffer)
+		if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
+			debugf("nothing to flush\n")
+			return nil
+		}
+		if err != nil {
+			debugf("error while flushing: %v\n", err)
+			return err
+		}
+		debugf("%d bytes read while flushing connection\n", n)
+		// for follow-up reads, reduce the timeout
+		timeout = time.Second / 2
+	}
 }
