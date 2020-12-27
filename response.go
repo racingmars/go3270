@@ -6,7 +6,9 @@ package go3270
 
 import (
 	"bytes"
+	"fmt"
 	"net"
+	"os"
 )
 
 // Response encapsulates data received from a 3270 client in response to the
@@ -210,6 +212,17 @@ func handleField(addr int, value []byte, fm fieldmap, values map[string]string) 
 // decodeBufAddr decodes a raw 2-byte encoded buffer address and returns the
 // integer value of the address (i.e. 0-1919)
 func decodeBufAddr(raw [2]byte) int {
+	if decodes[raw[0]]<<6 > 254 {
+		fmt.Fprintf(os.Stderr,
+			"UNEXPECTED VALUE: decodeBufAddr got raw value of %02x %02x\n",
+			raw[0], raw[1])
+	}
+	if decodes[raw[1]] > 254 {
+		fmt.Fprintf(os.Stderr,
+			"UNEXPECTED VALUE: decodeBufAddr got raw value of %02x %02x\n",
+			raw[0], raw[1])
+	}
+
 	hi := decodes[raw[0]] << 6
 	lo := decodes[raw[1]]
 	return hi | lo
