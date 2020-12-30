@@ -99,7 +99,7 @@ func readResponse(c net.Conn, fm fieldmap) (Response, error) {
 func readAID(c net.Conn) (AID, error) {
 	buf := make([]byte, 1)
 	for {
-		_, err := c.Read(buf)
+		_, err := telnetRead(c, buf)
 		if err != nil {
 			return AIDNone, err
 		}
@@ -122,7 +122,7 @@ func readPosition(c net.Conn) (row, col, addr int, err error) {
 
 	// Read two bytes
 	for i := 0; i < 2; i++ {
-		if _, err := c.Read(buf); err != nil {
+		if _, err := telnetRead(c, buf); err != nil {
 			return 0, 0, 0, err
 		}
 		raw[i] = buf[0]
@@ -150,7 +150,7 @@ func readFields(c net.Conn, fm fieldmap) (map[string]string, error) {
 	// consume bytes until we get 0xffef
 	for {
 		// Read a byte
-		if _, err = c.Read(buf); err != nil {
+		if _, err = telnetRead(c, buf); err != nil {
 			return nil, err
 		}
 
@@ -163,7 +163,7 @@ func readFields(c net.Conn, fm fieldmap) (map[string]string, error) {
 			}
 
 			// consume the next byte, which is probably 0xef
-			if _, err = c.Read(buf); err != nil {
+			if _, err = telnetRead(c, buf); err != nil {
 				return nil, err
 			}
 			return values, nil

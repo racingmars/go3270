@@ -68,3 +68,77 @@ func flushConnection(conn net.Conn, timeout time.Duration) error {
 		timeout = time.Second / 2
 	}
 }
+
+// telnetRead behaves similarly to conn.Read, except it filters out telnet
+// commands. A single call to telnetRead() may perform multiple calls to
+// c.Read() if awaiting completion of a command, or to ensure we do not return
+// zero bytes in a non-error condition.
+func telnetRead(c net.Conn, p []byte) (n int, err error) {
+	const (
+		normal = iota
+		command
+		subneg
+	)
+
+	// Not the most efficient, but for now to keep the code easier we'll just
+	// read 1 byte at a time from the connection.
+	b := make([]byte, 1)
+	state := normal
+
+	for n < len(p) {
+		bn, berr := c.Read(b)
+
+		// When there are no bytes to process and we received an error, we
+		// are done no matter what state we're in. Any non-command bytes will
+		// already be in p, so we return.
+		if bn == 0 && berr != nil {
+			return n, berr
+		}
+
+		// If we received 0 bytes but no error, we'll just read again.
+		if bn == 0 {
+			continue
+		}
+
+		// We got a byte! Let's progress through our state machine.
+		switch state {
+		case normal:
+			if b[0] == iac {
+				state = command
+				debugf("entering telnet command state\n")
+			} else {
+				p[n] = b[0]
+				n++
+			}
+		case command:
+			if b[0] == 0xff {
+				p[n] = 0xff
+				n++
+				state = normal
+				debugf("leaving telnet command state; was an escaped 0xff\n")
+			} else if b[0] == sb {
+				state = subneg
+				debugf("entering telnet command subnegotiation state\n")
+			} else {
+				state = normal
+				debugf("leaving telnet command state; command was %02x\n",
+					b[0])
+			}
+		case subneg:
+			if b[0] == se {
+				state = normal
+				debugf("leaving telnet command subnegotiation state\n")
+			} else {
+				// remain in subnegotiation consuming bytes until we get se
+				debugf("consumed telnet subnegotiation byte: %02x\n", b[0])
+			}
+		}
+
+		// Now we handle any errors that returned partial data
+		if berr != nil {
+			return n, berr
+		}
+	}
+
+	return n, nil
+}

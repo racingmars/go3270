@@ -35,7 +35,6 @@ I would like to add:
 Known Problems
 --------------
 
- - The telnet data is not checked for the special telnet byte value, 0xFF, which requires escaping while sending and unescaping while receiving data. If your 3270 data streams contain an FF character, things will probably break. However...I don't think 0xFF should ever appear in the datastream, so we're probably okay.
  - The telnet negotiation does not check for any errors or for any responses from the client. We just assume it goes well and we're actually talking to a tn3270 client.
 
 License
