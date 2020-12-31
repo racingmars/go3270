@@ -7,6 +7,7 @@ package go3270
 import (
 	"bytes"
 	"net"
+	"strings"
 )
 
 // Field is a field on the 3270 screen.
@@ -44,6 +45,13 @@ type Field struct {
 	// Name is the name of this field, which is used to get the user-entered
 	// data. All writeable fields on a screen must have a unique name.
 	Name string
+
+	// KeepSpaces will prevent the strings.TrimSpace() function from being
+	// called on the field value. Generally you want leading and trailing
+	// spaces trimmed from fields in 3270 before processing, but if you are
+	// building a whitespace-sensitive application, you can ask for the
+	// original, un-trimmed value for a field by setting this to true.
+	KeepSpaces bool
 }
 
 // Color is a 3270 extended field attribute color value
@@ -147,7 +155,22 @@ func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
 		return Response{}, err
 	}
 
-	return readResponse(conn, fm)
+	response, err := readResponse(conn, fm)
+	if err != nil {
+		return response, err
+	}
+
+	// Strip leading+trailing spaces from field values
+	for _, fld := range screen {
+		if !fld.KeepSpaces {
+			if _, ok := response.Values[fld.Name]; ok {
+				response.Values[fld.Name] =
+					strings.TrimSpace(response.Values[fld.Name])
+			}
+		}
+	}
+
+	return response, nil
 }
 
 // sba is the "set buffer address" 3270 command.
