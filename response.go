@@ -97,13 +97,11 @@ func readResponse(c net.Conn, fm fieldmap) (Response, error) {
 }
 
 func readAID(c net.Conn) (AID, error) {
-	buf := make([]byte, 1)
 	for {
-		_, err := telnetRead(c, buf)
-		if err != nil {
+		b, valid, _, err := telnetRead(c, false)
+		if !valid && err != nil {
 			return AIDNone, err
 		}
-		b := buf[0]
 		if (b == 0x60) || (b >= 0x6b && b <= 0x6e) ||
 			(b >= 0x7a && b <= 0x7d) || (b >= 0x4a && b <= 0x4c) ||
 			(b >= 0xf1 && b <= 0xf9) || (b >= 0xc1 && b <= 0xc9) {
@@ -117,15 +115,15 @@ func readAID(c net.Conn) (AID, error) {
 }
 
 func readPosition(c net.Conn) (row, col, addr int, err error) {
-	buf := make([]byte, 1)
 	raw := make([]byte, 2)
 
 	// Read two bytes
 	for i := 0; i < 2; i++ {
-		if _, err := telnetRead(c, buf); err != nil {
+		b, _, _, err := telnetRead(c, false)
+		if err != nil {
 			return 0, 0, 0, err
 		}
-		raw[i] = buf[0]
+		raw[i] = b
 	}
 
 	// Decode the raw position
@@ -140,37 +138,32 @@ func readPosition(c net.Conn) (row, col, addr int, err error) {
 }
 
 func readFields(c net.Conn, fm fieldmap) (map[string]string, error) {
-	buf := make([]byte, 1)
 	var infield bool
 	var fieldpos int
 	var fieldval bytes.Buffer
 	var values = make(map[string]string)
-	var err error
 
 	// consume bytes until we get 0xffef
 	for {
 		// Read a byte
-		if _, err = telnetRead(c, buf); err != nil {
+		b, _, eor, err := telnetRead(c, true)
+		if err != nil {
 			return nil, err
 		}
 
 		// Check for end of data stream (0xffef)
-		if buf[0] == 0xff {
+		if eor {
 			// Finish the current field
 			if infield {
 				debugf("Field %d: %s\n", fieldpos, e2a(fieldval.Bytes()))
 				handleField(fieldpos, fieldval.Bytes(), fm, values)
 			}
 
-			// consume the next byte, which is probably 0xef
-			if _, err = telnetRead(c, buf); err != nil {
-				return nil, err
-			}
 			return values, nil
 		}
 
 		// No? Check for start-of-field
-		if buf[0] == 0x11 {
+		if b == 0x11 {
 			// Finish the previous field, if necessary
 			if infield {
 				debugf("Field %d: %s\n", fieldpos, e2a(fieldval.Bytes()))
@@ -189,10 +182,10 @@ func readFields(c net.Conn, fm fieldmap) (map[string]string, error) {
 
 		// Consume all other bytes as field contents if we're in a field
 		if !infield {
-			debugf("Got unexpected byte while processing fields: %02x\n", buf[0])
+			debugf("Got unexpected byte while processing fields: %02x\n", b)
 			continue
 		}
-		fieldval.WriteByte(buf[0])
+		fieldval.WriteByte(b)
 	}
 }
 
@@ -212,7 +205,7 @@ func handleField(addr int, value []byte, fm fieldmap, values map[string]string) 
 // decodeBufAddr decodes a raw 2-byte encoded buffer address and returns the
 // integer value of the address (i.e. 0-1919)
 func decodeBufAddr(raw [2]byte) int {
-	if decodes[raw[0]]<<6 > 254 {
+	if decodes[raw[0]] > 254 {
 		fmt.Fprintf(os.Stderr,
 			"UNEXPECTED VALUE: decodeBufAddr got raw value of %02x %02x\n",
 			raw[0], raw[1])

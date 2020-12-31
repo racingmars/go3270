@@ -20,7 +20,8 @@ const (
 	dont         = 254 // fe
 	iac          = 255 // ff
 	terminalType = 24  // 18
-	eor          = 25  // 19
+	eoroption    = 25  // 19
+	eor          = 239 // f1
 )
 
 // NegotiateTelnet will naively (e.g. not checking client responses) negotiate
@@ -28,9 +29,9 @@ const (
 func NegotiateTelnet(conn net.Conn) error {
 	conn.Write([]byte{iac, do, terminalType})
 	conn.Write([]byte{iac, sb, terminalType, send, iac, se})
-	conn.Write([]byte{iac, do, eor})
+	conn.Write([]byte{iac, do, eoroption})
 	conn.Write([]byte{iac, do, binary})
-	conn.Write([]byte{iac, will, eor, iac, will, binary})
+	conn.Write([]byte{iac, will, eoroption, iac, will, binary})
 	flushConnection(conn, time.Second*5)
 	return nil
 }
@@ -39,9 +40,9 @@ func NegotiateTelnet(conn net.Conn) error {
 // to restore the telnet options state to what it was before NegotiateTelnet()
 // was called.
 func UnNegotiateTelnet(conn net.Conn, timeout time.Duration) error {
-	conn.Write([]byte{iac, wont, eor, iac, wont, binary})
+	conn.Write([]byte{iac, wont, eoroption, iac, wont, binary})
 	conn.Write([]byte{iac, dont, binary})
-	conn.Write([]byte{iac, dont, eor})
+	conn.Write([]byte{iac, dont, eoroption})
 	conn.Write([]byte{iac, dont, terminalType})
 	flushConnection(conn, timeout)
 	return nil
@@ -69,30 +70,32 @@ func flushConnection(conn net.Conn, timeout time.Duration) error {
 	}
 }
 
-// telnetRead behaves similarly to conn.Read, except it filters out telnet
-// commands. A single call to telnetRead() may perform multiple calls to
-// c.Read() if awaiting completion of a command, or to ensure we do not return
-// zero bytes in a non-error condition.
-func telnetRead(c net.Conn, p []byte) (n int, err error) {
+// telnetRead returns the next byte of data from the connection c, but
+// filters out all telnet commands. If passEOR is true, then telnetRead will
+// return upon encountering the telnet End of Record command, setting isEor to
+// true. When isEor is true, the value of b is meaningless and must be ignored
+// (valid will be false). When valid is true, the value in byte b is a real
+// value read from the connection; when value is false, do not use the value
+// in b. (For example, a valid byte AND error can be returned in the same
+// call.)
+func telnetRead(c net.Conn, passEOR bool) (b byte, valid, isEor bool, err error) {
 	const (
 		normal = iota
 		command
 		subneg
 	)
 
-	// Not the most efficient, but for now to keep the code easier we'll just
-	// read 1 byte at a time from the connection.
-	b := make([]byte, 1)
+	buf := make([]byte, 1)
 	state := normal
 
-	for n < len(p) {
-		bn, berr := c.Read(b)
+	for {
+		bn, berr := c.Read(buf)
 
 		// When there are no bytes to process and we received an error, we
 		// are done no matter what state we're in. Any non-command bytes will
 		// already be in p, so we return.
 		if bn == 0 && berr != nil {
-			return n, berr
+			return 0, false, false, berr
 		}
 
 		// If we received 0 bytes but no error, we'll just read again.
@@ -103,42 +106,35 @@ func telnetRead(c net.Conn, p []byte) (n int, err error) {
 		// We got a byte! Let's progress through our state machine.
 		switch state {
 		case normal:
-			if b[0] == iac {
+			if buf[0] == iac {
 				state = command
 				debugf("entering telnet command state\n")
 			} else {
-				p[n] = b[0]
-				n++
+				return buf[0], true, false, berr
 			}
 		case command:
-			if b[0] == 0xff {
-				p[n] = 0xff
-				n++
-				state = normal
+			if buf[0] == 0xff {
 				debugf("leaving telnet command state; was an escaped 0xff\n")
-			} else if b[0] == sb {
+				return 0xff, true, false, nil
+			} else if buf[0] == sb {
 				state = subneg
 				debugf("entering telnet command subnegotiation state\n")
+			} else if passEOR && buf[0] == eor {
+				debugf("leaving telnet command state; returning EOR\n")
+				return 0, false, true, nil
 			} else {
 				state = normal
 				debugf("leaving telnet command state; command was %02x\n",
-					b[0])
+					buf[0])
 			}
 		case subneg:
-			if b[0] == se {
+			if buf[0] == se {
 				state = normal
 				debugf("leaving telnet command subnegotiation state\n")
 			} else {
 				// remain in subnegotiation consuming bytes until we get se
-				debugf("consumed telnet subnegotiation byte: %02x\n", b[0])
+				debugf("consumed telnet subnegotiation byte: %02x\n", buf[0])
 			}
 		}
-
-		// Now we handle any errors that returned partial data
-		if berr != nil {
-			return n, berr
-		}
 	}
-
-	return n, nil
 }
