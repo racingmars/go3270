@@ -28,6 +28,11 @@ type Field struct {
 	// Write allows the user to edit the value of the field.
 	Write bool
 
+	// Autoskip causes protected (Write = false) fields to automatically be
+	// skipped and the cursor should move to the next field upon encountering
+	// this field. Autoskip is ignored on fields with Write = true.
+	Autoskip bool
+
 	// Intense indicates this field should be displayed with high intensity.
 	Intense bool
 
@@ -188,7 +193,7 @@ func buildField(f Field) []byte {
 	if f.Color == DefaultColor && f.Highlighting == DefaultHighlight {
 		// this is a traditional field, issue a normal sf command
 		buf.WriteByte(0x1d) // sf - "start field"
-		buf.WriteByte(sfAttribute(f.Write, f.Intense, f.Hidden))
+		buf.WriteByte(sfAttribute(f.Write, f.Intense, f.Hidden, f.Autoskip))
 		return buf.Bytes()
 	}
 
@@ -205,7 +210,7 @@ func buildField(f Field) []byte {
 
 	// Write the basic field attribute
 	buf.WriteByte(0xc0)
-	buf.WriteByte(sfAttribute(f.Write, f.Intense, f.Hidden))
+	buf.WriteByte(sfAttribute(f.Write, f.Intense, f.Hidden, f.Autoskip))
 
 	// Write the highlighting attribute
 	if f.Highlighting != DefaultHighlight {
@@ -223,10 +228,13 @@ func buildField(f Field) []byte {
 }
 
 // sfAttribute builds the attribute byte for the "start field" 3270 command
-func sfAttribute(write, intense, hidden bool) byte {
+func sfAttribute(write, intense, hidden, skip bool) byte {
 	var attribute byte
 	if !write {
 		attribute |= 1 << 5 // set "bit 2"
+		if skip {
+			attribute |= 1 << 4 // set "bit 3"
+		}
 	} else {
 		// The MDT bit -- we always want writable field values returned,
 		// even if unchanged

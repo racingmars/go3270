@@ -26,13 +26,13 @@ var screen1 = go3270.Screen{
 	{Row: 2, Col: 0, Content: "Welcome to the go3270 example application. Please enter your name."},
 	{Row: 4, Col: 0, Content: "First Name  . . ."},
 	{Row: 4, Col: 19, Name: "fname", Write: true, Highlighting: go3270.Underscore},
-	{Row: 4, Col: 40}, // field "stop" character
+	{Row: 4, Col: 40, Autoskip: true}, // field "stop" character
 	{Row: 5, Col: 0, Content: "Last Name . . . ."},
 	{Row: 5, Col: 19, Name: "lname", Write: true, Highlighting: go3270.Underscore},
-	{Row: 5, Col: 40}, // field "stop" character,
+	{Row: 5, Col: 40, Autoskip: true}, // field "stop" character,
 	{Row: 6, Col: 0, Content: "Password  . . . ."},
 	{Row: 6, Col: 19, Name: "password", Write: true, Hidden: true},
-	{Row: 6, Col: 40}, // field "stop" character,
+	{Row: 6, Col: 40, Autoskip: true}, // field "stop" character,
 	{Row: 7, Col: 0, Content: "Change me  . . ."},
 	{Row: 7, Col: 19, Name: "changeme", Content: "change me", Write: true, Highlighting: go3270.Underscore},
 	{Row: 7, Col: 40}, // field "stop" character
