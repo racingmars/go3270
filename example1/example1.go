@@ -33,6 +33,9 @@ var screen1 = go3270.Screen{
 	{Row: 6, Col: 0, Content: "Password  . . . ."},
 	{Row: 6, Col: 19, Name: "password", Write: true, Hidden: true},
 	{Row: 6, Col: 40}, // field "stop" character
+	{Row: 7, Col: 0, Content: "EmployeeId . . . ."},
+	{Row: 7, Col: 19, Name: "employeeId", Write: true, Highlighting: go3270.Underscore, NumericOnly: true},
+	{Row: 7, Col: 40}, // field "stop" character
 	{Row: 8, Col: 0, Content: "Press"},
 	{Row: 8, Col: 6, Intense: true, Content: "enter"},
 	{Row: 8, Col: 12, Content: "to submit your name."},
