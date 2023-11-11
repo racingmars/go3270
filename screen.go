@@ -40,7 +40,9 @@ type Field struct {
 	// password input field).
 	Hidden bool
 
-	// NumericOnly if set only allows numeric input to be written to the field
+	// NumericOnly indicates that only numbers may be entered into the field.
+	// Very fiew 3270 clients support this, so you must always still validate
+	// the input on the server side.
 	NumericOnly bool
 
 	// Color is the field color. The default value is the default color.
@@ -196,7 +198,8 @@ func buildField(f Field) []byte {
 	if f.Color == DefaultColor && f.Highlighting == DefaultHighlight {
 		// this is a traditional field, issue a normal sf command
 		buf.WriteByte(0x1d) // sf - "start field"
-		buf.WriteByte(sfAttribute(f.Write, f.Intense, f.Hidden, f.Autoskip, f.NumericOnly))
+		buf.WriteByte(sfAttribute(f.Write, f.Intense, f.Hidden, f.Autoskip,
+			f.NumericOnly))
 		return buf.Bytes()
 	}
 
@@ -213,7 +216,8 @@ func buildField(f Field) []byte {
 
 	// Write the basic field attribute
 	buf.WriteByte(0xc0)
-	buf.WriteByte(sfAttribute(f.Write, f.Intense, f.Hidden, f.Autoskip, f.NumericOnly))
+	buf.WriteByte(sfAttribute(f.Write, f.Intense, f.Hidden, f.Autoskip,
+		f.NumericOnly))
 
 	// Write the highlighting attribute
 	if f.Highlighting != DefaultHighlight {
@@ -242,7 +246,9 @@ func sfAttribute(write, intense, hidden, skip, numeric bool) byte {
 		// The MDT bit -- we always want writable field values returned,
 		// even if unchanged
 		attribute |= 1 // set "bit 7"
-
+		if numeric {
+			attribute |= 1 << 4 // set "bit 3"
+		}
 	}
 	if intense {
 		attribute |= 1 << 3 // set "bit 4"
@@ -250,9 +256,6 @@ func sfAttribute(write, intense, hidden, skip, numeric bool) byte {
 	if hidden {
 		attribute |= 1 << 3 // set "bit 4"
 		attribute |= 1 << 2 // set "bit 5"
-	}
-	if numeric {
-		attribute |= 1 << 4 // set "bit 3"
 	}
 	// Fill in top 2 bits with appropriate values
 	attribute = codes[attribute]
