@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/racingmars/go3270"
 )
@@ -63,6 +64,11 @@ var screen2 = go3270.Screen{
 	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
 
+var goodbyeScreen = go3270.Screen{
+	{Row: 0, Col: 27, Intense: true, Content: "3270 Example Application"},
+	{Row: 2, Col: 0, Content: "Thank you using this application. Goodbye."},
+}
+
 func main() {
 	ln, err := net.Listen("tcp", ":3270")
 	if err != nil {
@@ -111,6 +117,8 @@ mainLoop:
 
 			// If the user pressed PF3, exit
 			if response.AID == go3270.AIDPF3 {
+				go3270.ShowScreenNoResponse(goodbyeScreen, nil, 0, 0, conn)
+				time.Sleep(2 * time.Second)
 				break mainLoop
 			}
 
@@ -159,6 +167,8 @@ mainLoop:
 
 		// If the user pressed PF3, exit
 		if response.AID == go3270.AIDPF3 {
+			go3270.ShowScreenNoResponse(goodbyeScreen, nil, 0, 0, conn)
+			time.Sleep(2 * time.Second)
 			break
 		}
 

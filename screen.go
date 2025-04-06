@@ -1,6 +1,6 @@
 // This file is part of https://github.com/racingmars/go3270/
-// Copyright 2020 by Matthew R. Wilson, licensed under the MIT license. See
-// LICENSE in the project root for license information.
+// Copyright 2020, 2025 by Matthew R. Wilson, licensed under the MIT license.
+// See LICENSE in the project root for license information.
 
 package go3270
 
@@ -106,9 +106,46 @@ type fieldmap map[int]string
 // field. The values map may be nil if no overrides are needed. After writing
 // the fields, the cursor is set to crow, ccol, which are 0-based positions:
 // row 0-23 and col 0-79. Errors from conn.Write() are returned if
-// encountered.
+// encountered. ShowScreen will wait for the client to provide data before
+// returning, and the data from the client will be returned as a Response.
 func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
 	conn net.Conn) (Response, error) {
+
+	fm, err := showScreenInternal(screen, values, crow, ccol, conn)
+	if err != nil {
+		return Response{}, err
+	}
+
+	response, err := readResponse(conn, fm)
+	if err != nil {
+		return response, err
+	}
+
+	// Strip leading+trailing spaces from field values
+	for _, fld := range screen {
+		if !fld.KeepSpaces {
+			if _, ok := response.Values[fld.Name]; ok {
+				response.Values[fld.Name] =
+					strings.TrimSpace(response.Values[fld.Name])
+			}
+		}
+	}
+
+	return response, nil
+}
+
+// ShowScreenNoResponse writes the screen to the connection, just like
+// ShowScreen(), but immediately returns instead of waiting for data
+// from the client.
+func ShowScreenNoResponse(screen Screen, values map[string]string,
+	crow, ccol int, conn net.Conn) error {
+
+	_, err := showScreenInternal(screen, values, crow, ccol, conn)
+	return err
+}
+
+func showScreenInternal(screen Screen, values map[string]string,
+	crow, ccol int, conn net.Conn) (fieldmap, error) {
 
 	var b bytes.Buffer
 	var fm = make(fieldmap) // field buffer positions -> name
@@ -162,25 +199,10 @@ func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
 	// Now write the datastream to the writer, returning any potential error.
 	debugf("sending datastream: %x\n", b.Bytes())
 	if _, err := conn.Write(b.Bytes()); err != nil {
-		return Response{}, err
+		return nil, err
 	}
 
-	response, err := readResponse(conn, fm)
-	if err != nil {
-		return response, err
-	}
-
-	// Strip leading+trailing spaces from field values
-	for _, fld := range screen {
-		if !fld.KeepSpaces {
-			if _, ok := response.Values[fld.Name]; ok {
-				response.Values[fld.Name] =
-					strings.TrimSpace(response.Values[fld.Name])
-			}
-		}
-	}
-
-	return response, nil
+	return fm, nil
 }
 
 // sba is the "set buffer address" 3270 command.
