@@ -121,12 +121,14 @@ func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
 		return response, err
 	}
 
-	// Strip leading+trailing spaces from field values
+	// Strip trailing spaces from field values. Most applications will want to
+	// strip leading spaces, too, but it's possible they want them preserved,
+	// so we'll leave that to the caller.
 	for _, fld := range screen {
 		if !fld.KeepSpaces {
 			if _, ok := response.Values[fld.Name]; ok {
 				response.Values[fld.Name] =
-					strings.TrimSpace(response.Values[fld.Name])
+					strings.TrimRight(response.Values[fld.Name], " ")
 			}
 		}
 	}
