@@ -18,7 +18,7 @@ Everything I know about 3270 data streams I learned from [Tommy Sprinkle's tutor
 Usage
 -----
 
-See the example folders for a quick demonstration of using the library. The examples are very similar, but example1 uses the lower-level function ShowScreen(), and example2 uses a higher-level function HandleScreen().
+See the example folders for a quick demonstration of using the library. example1 uses the lower-level function ShowScreen(), and example2 uses a higher-level function HandleScreen(). example3 demonstrates updating the client's 3270 display while waiting for a response by using an update thread and a waiting response thread.
 
 Here's [a video introducing the library][introVideo] as well.
 

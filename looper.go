@@ -69,18 +69,18 @@ type FieldRules struct {
 // HandleScreen will loop until all validation rules are satisfied, and only
 // return when an expected AID (i.e. PF) key is pressed.
 //
-//  - screen is the Screen to display (see ShowScreen()).
-//  - rules are the Rules to enforce: each key in the Rules map corresponds to
-//    a Field.Name in the screen array.
-//  - values are field values you wish to override (see ShowScreen()).
-//  - pfkeys and exitkeys are the AID keys that you wish to accept (that is,
-//    perform validation and return if successful) and treat as exit keys
-//    (unconditionally return).
-//  - errorField is the name of a field in the screen array that you wish error
-//    messages to be written in when HandleScreen loops waiting for a valid
-//    user submission.
-//  - crow and ccol are the initial cursor position.
-//  - conn is the network connection to the 3270 client.
+//   - screen is the Screen to display (see ShowScreen()).
+//   - rules are the Rules to enforce: each key in the Rules map corresponds to
+//     a Field.Name in the screen array.
+//   - values are field values you wish to override (see ShowScreen()).
+//   - pfkeys and exitkeys are the AID keys that you wish to accept (that is,
+//     perform validation and return if successful) and treat as exit keys
+//     (unconditionally return).
+//   - errorField is the name of a field in the screen array that you wish error
+//     messages to be written in when HandleScreen loops waiting for a valid
+//     user submission.
+//   - crow and ccol are the initial cursor position.
+//   - conn is the network connection to the 3270 client.
 //
 // HandleScreen will return when the user: 1) presses a key in pfkeys AND all
 // fields pass validation, OR 2) the user presses a key in exitkeys. In all
@@ -127,7 +127,8 @@ mainloop:
 			}
 		}
 
-		resp, err := ShowScreen(screen, myValues, crow, ccol, conn)
+		resp, err := ShowScreenOpts(screen, myValues, conn,
+			ScreenOpts{CursorRow: crow, CursorCol: ccol})
 		if err != nil {
 			return resp, err
 		}

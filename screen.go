@@ -95,64 +95,118 @@ const (
 // names,
 type Screen []Field
 
+// ScreenOpts are the options that callers may set when sending a screen
+// to the 3270 client.
+type ScreenOpts struct {
+	// NoResponse will draw the screen and immediately return, without
+	// waiting for any input data from the remote client.
+	NoResponse bool
+
+	// NoClear will send the data stream to the remote client without
+	// clearing the screen first. Existing data will be overlayed with
+	// the current screen.
+	NoClear bool
+
+	// CursorRow sets the row (0-indexed) to position the cursor after
+	// sending the screen, when NoClear is false. Maximum value is 23.
+	CursorRow int
+
+	// CursorCol sets the column (0-indexed) to position the cursor after
+	// sending the screen, when NoClear is false. Maximum value is 79.
+	CursorCol int
+}
+
 // fieldmap is a map of field buffer addresses and the corresponding field
 // name.
 type fieldmap map[int]string
 
-// ShowScreen writes the 3270 datastream for the screen to a connection.
+// ShowScreenOpts writes the 3270 datastream for the screen, with the provided
+// ScreenOpts, to a connection.
+//
 // Fields that aren't valid (e.g. outside of the 24x80 screen) are silently
 // ignored. If a named field has an entry in the values map, the content of
 // the field from the values map is used INSTEAD OF the Field struct's Content
-// field. The values map may be nil if no overrides are needed. After writing
-// the fields, the cursor is set to crow, ccol, which are 0-based positions:
-// row 0-23 and col 0-79. Errors from conn.Write() are returned if
-// encountered. ShowScreen will wait for the client to provide data before
-// returning, and the data from the client will be returned as a Response.
-func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
-	conn net.Conn) (Response, error) {
+// field. The values map may be nil if no overrides are needed.
+//
+// If opts.NoClear is false, the client screen will be cleared before writing
+// the new screen, and the cursor will be repositioned to the values in
+// opts.CursorRow and opts.CursorCol. If opts.NoClear is true, the screen will
+// NOT be cleared, the cursor will NOT be repositioned, and the new screen
+// will be overlayed over the current state of the client screen.
+//
+// If opts.NoResponse is false, ShowScreenOpts will block before returning,
+// waiting for data from the client and returning the Response. If
+// opts.NoResponse is true, ShowScreenOpts will immediately return after
+// sending the datastream and the Response will be empty.
+//
+// If using from multiple threads -- one to block and wait for a response, and
+// another to send screens with NoResponse and/or NoClear, be aware that if
+// you change the input fields on screen after the initial blocking call is
+// made, the response fields will not line up correctly and end up being
+// invalid. That is to say, while waiting for a response, don't perform other
+// actions from another thread that could layout the user input fields
+// differently.
+func ShowScreenOpts(screen Screen, values map[string]string, conn net.Conn,
+	opts ScreenOpts) (Response, error) {
 
-	fm, err := showScreenInternal(screen, values, crow, ccol, conn)
+	var resp Response
+
+	fm, err := showScreenInternal(screen, values, opts.CursorRow,
+		opts.CursorCol, conn, !opts.NoClear)
 	if err != nil {
-		return Response{}, err
+		return resp, err
 	}
 
-	response, err := readResponse(conn, fm)
-	if err != nil {
-		return response, err
-	}
+	if !opts.NoResponse {
+		resp, err = readResponse(conn, fm)
+		if err != nil {
+			return resp, err
+		}
 
-	// Strip trailing spaces from field values. Most applications will want to
-	// strip leading spaces, too, but it's possible they want them preserved,
-	// so we'll leave that to the caller.
-	for _, fld := range screen {
-		if !fld.KeepSpaces {
-			if _, ok := response.Values[fld.Name]; ok {
-				response.Values[fld.Name] =
-					strings.TrimRight(response.Values[fld.Name], " ")
+		// Strip trailing spaces from field values. Most applications will
+		// want to strip leading spaces, too, but it's possible they want them
+		// preserved, so we'll leave that to the caller.
+		for _, fld := range screen {
+			if !fld.KeepSpaces {
+				if _, ok := resp.Values[fld.Name]; ok {
+					resp.Values[fld.Name] =
+						strings.TrimRight(resp.Values[fld.Name], " ")
+				}
 			}
 		}
 	}
 
-	return response, nil
+	return resp, nil
 }
 
-// ShowScreenNoResponse writes the screen to the connection, just like
-// ShowScreen(), but immediately returns instead of waiting for data
-// from the client.
+// Deprecated: use ShowScreenOpts with default/empty ScreenOpts.
+func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
+	conn net.Conn) (Response, error) {
+
+	return ShowScreenOpts(screen, values, conn,
+		ScreenOpts{CursorRow: crow, CursorCol: ccol})
+}
+
+// Deprecated: use ShowScreenOpts with ScreenOpts.NoResponse = true.
 func ShowScreenNoResponse(screen Screen, values map[string]string,
 	crow, ccol int, conn net.Conn) error {
 
-	_, err := showScreenInternal(screen, values, crow, ccol, conn)
+	_, err := ShowScreenOpts(screen, values, conn,
+		ScreenOpts{NoResponse: true, CursorRow: crow, CursorCol: ccol})
 	return err
 }
 
 func showScreenInternal(screen Screen, values map[string]string,
-	crow, ccol int, conn net.Conn) (fieldmap, error) {
+	crow, ccol int, conn net.Conn, clear bool) (fieldmap, error) {
 
 	var b bytes.Buffer
 	var fm = make(fieldmap) // field buffer positions -> name
 
-	b.WriteByte(0xf5) // Erase/Write to terminal
+	if clear {
+		b.WriteByte(0xf5) // Erase/Write to terminal
+	} else {
+		b.WriteByte(0xf1) // Write to terminal
+	}
 	b.WriteByte(0xc3) // WCC = Reset, Unlock Keyboard, Reset MDT
 
 	// Build the commands for each field on the screen
@@ -187,14 +241,18 @@ func showScreenInternal(screen Screen, values map[string]string,
 		}
 	}
 
-	// Set cursor position. Correct out-of-bounds values to 0.
-	if crow < 0 || crow > 23 {
-		crow = 0
+	// If we cleared the screen, set the cursor position to the
+	// caller-provided coordinates.
+	if clear {
+		// Set cursor position. Correct out-of-bounds values to 0.
+		if crow < 0 || crow > 23 {
+			crow = 0
+		}
+		if ccol < 0 || ccol > 79 {
+			ccol = 0
+		}
+		b.Write(ic(crow, ccol))
 	}
-	if ccol < 0 || ccol > 79 {
-		ccol = 0
-	}
-	b.Write(ic(crow, ccol))
 
 	b.Write([]byte{0xff, 0xef}) // Telnet IAC EOR
 
