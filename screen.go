@@ -114,6 +114,19 @@ type ScreenOpts struct {
 	// CursorCol sets the column (0-indexed) to position the cursor after
 	// sending the screen, when NoClear is false. Maximum value is 79.
 	CursorCol int
+
+	// PostSendCallback is a function that, if non-nil, will be called after
+	// go3270 sends the datastream to the client, but before it blocks to
+	// read the response (if NoResponse is true, the callback will still be
+	// called before returning). If the function returns an error, then
+	// the ShowScreenOpts() function will return the error instead of a
+	// response. The value of CallbackData will be passed as the argument to
+	// the function.
+	PostSendCallback func(any) error
+
+	// CallbackData is passed as the argument to the PostSendCallback
+	// function.
+	CallbackData any
 }
 
 // fieldmap is a map of field buffer addresses and the corresponding field
@@ -155,6 +168,13 @@ func ShowScreenOpts(screen Screen, values map[string]string, conn net.Conn,
 		opts.CursorCol, conn, !opts.NoClear)
 	if err != nil {
 		return resp, err
+	}
+
+	// Call the optional callback function after sending the screen.
+	if opts.PostSendCallback != nil {
+		if err := opts.PostSendCallback(opts.CallbackData); err != nil {
+			return resp, err
+		}
 	}
 
 	if !opts.NoResponse {
