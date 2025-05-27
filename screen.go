@@ -226,7 +226,14 @@ func showScreenInternal(screen Screen, values map[string]string,
 	} else {
 		b.WriteByte(0xf1) // Write to terminal
 	}
-	b.WriteByte(0xc3) // WCC = Reset, Unlock Keyboard, Reset MDT
+	if clear {
+		b.WriteByte(0xc3) // WCC = Reset, Unlock Keyboard, Reset MDT
+	} else {
+		// Don't clear modified data tag if we're not clearing the screen;
+		// we still want the client to send any data a user has modified
+		// in fields.
+		b.WriteByte(0xc2) // WCC = Reset, Unlock Keyboard (*no* reset MDT)
+	}
 
 	// Build the commands for each field on the screen
 	for _, fld := range screen {
