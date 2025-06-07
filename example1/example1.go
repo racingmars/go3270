@@ -60,7 +60,8 @@ var screen2 = go3270.Screen{
 	{Row: 9, Col: 41, Intense: true, Content: "PF3"},
 	{Row: 9, Col: 45, Content: "to quit and disconnect."},
 	{Row: 12, Col: 0, Color: go3270.Turquoise, Highlighting: go3270.ReverseVideo, Content: "Here is a field with extended attributes."},
-	{Row: 12, Col: 42}, // remember to "stop" fields with a regular field, to clear the reverse video for example
+	{Row: 12, Col: 42},                  // remember to "stop" fields with a regular field, to clear the reverse video for example
+	{Row: 14, Col: 0, Name: "position"}, // will be filled when displaying
 	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
 
@@ -93,6 +94,8 @@ func handle(conn net.Conn) {
 	go3270.NegotiateTelnet(conn)
 
 	fieldValues := make(map[string]string)
+	var response go3270.Response
+	var err error
 
 	// We will loop forever until the user quits with PF3
 mainLoop:
@@ -109,7 +112,7 @@ mainLoop:
 			// We're passing in the fieldValues map to carry values over from
 			// the previous submission. We could pass nil, instead, if always want
 			// the fields to start out blank.
-			response, err := go3270.ShowScreen(screen1, fieldValues, 4, 20, conn)
+			response, err = go3270.ShowScreen(screen1, fieldValues, 4, 20, conn)
 			if err != nil {
 				fmt.Println(err)
 				return
@@ -159,6 +162,9 @@ mainLoop:
 		}
 		fieldValues["passwordOutput"] = fmt.Sprintf("Your password was %d character%s long",
 			passwordLength, passwordPlural)
+		fieldValues["position"] = fmt.Sprintf(
+			"When you pressed enter the cursor was at row %d column %d.",
+			response.Row+1, response.Col+1)
 		response, err := go3270.ShowScreen(screen2, fieldValues, 0, 0, conn)
 		if err != nil {
 			fmt.Println(err)

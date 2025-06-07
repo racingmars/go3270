@@ -128,8 +128,8 @@ func readPosition(c net.Conn) (row, col, addr int, err error) {
 
 	// Decode the raw position
 	addr = decodeBufAddr([2]byte{raw[0], raw[1]})
-	row = addr % 80
-	col = (addr - row) / 80
+	col = addr % 80
+	row = (addr - col) / 80
 
 	debugf("Got position bytes %02x %02x, decoded to %d\n", raw[0], raw[1],
 		addr)
