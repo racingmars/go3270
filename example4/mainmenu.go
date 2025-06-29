@@ -79,7 +79,8 @@ type mainmenuData struct {
 
 // mainmenu transaction accepts a mainmenuData struct as the data if the
 // option field or error message should be populated.
-func (sess *session) mainmenu(conn net.Conn, data any) (go3270.Tx, any, error) {
+func (sess *session) mainmenu(conn net.Conn, _ go3270.DevInfo, data any) (
+	go3270.Tx, any, error) {
 
 	fieldValues := make(map[string]string)
 
@@ -182,8 +183,8 @@ var exampleScreen = go3270.Screen{
 // exampleFeature is a transaction that will act as a placeholder for real
 // application functionality. It accepts a string in the data which will
 // be displayed on the panel.
-func (sess *session) exampleFeature(conn net.Conn, data any) (go3270.Tx,
-	any, error) {
+func (sess *session) exampleFeature(conn net.Conn, _ go3270.DevInfo,
+	data any) (go3270.Tx, any, error) {
 
 	fieldValues := make(map[string]string)
 

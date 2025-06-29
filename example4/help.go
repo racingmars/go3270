@@ -48,7 +48,8 @@ var helpScreen = go3270.Screen{
 // generator function for it is a stand-alone function and not a method on the
 // session.
 func help(returnTransaction go3270.Tx) go3270.Tx {
-	return func(conn net.Conn, data any) (go3270.Tx, any, error) {
+	return func(conn net.Conn, _ go3270.DevInfo, data any) (
+		go3270.Tx, any, error) {
 		_, err := go3270.HandleScreen(
 			helpScreen,                  // the screen to display
 			nil,                         // (no) rules to enforce

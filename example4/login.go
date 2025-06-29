@@ -58,7 +58,8 @@ var loginScreenRules = go3270.Rules{
 
 // login transaction accepts a string value in data if the login screen
 // should be initialized with an error message.
-func (sess *session) login(conn net.Conn, data any) (go3270.Tx, any, error) {
+func (sess *session) login(conn net.Conn, _ go3270.DevInfo,
+	data any) (go3270.Tx, any, error) {
 
 	fieldValues := make(map[string]string)
 
@@ -169,7 +170,8 @@ type newuserData struct {
 	errmsg   string
 }
 
-func (sess *session) newuser(conn net.Conn, data any) (go3270.Tx, any, error) {
+func (sess *session) newuser(conn net.Conn, _ go3270.DevInfo, data any) (
+	go3270.Tx, any, error) {
 
 	fieldValues := make(map[string]string)
 

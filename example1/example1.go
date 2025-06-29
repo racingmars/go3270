@@ -91,7 +91,10 @@ func handle(conn net.Conn) {
 	defer conn.Close()
 
 	// Always begin new connection by negotiating the telnet options
-	go3270.NegotiateTelnet(conn)
+	if _, err := go3270.NegotiateTelnet(conn); err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		return
+	}
 
 	fieldValues := make(map[string]string)
 	var response go3270.Response

@@ -6,9 +6,7 @@ package go3270
 
 import (
 	"bytes"
-	"fmt"
 	"net"
-	"os"
 )
 
 // Response encapsulates data received from a 3270 client in response to the
@@ -61,9 +59,11 @@ const (
 	AIDPA2   AID = 0x6E
 	AIDPA3   AID = 0x6B
 	AIDClear AID = 0x6D
+
+	aidQueryResponse AID = 0x88
 )
 
-func readResponse(c net.Conn, fm fieldmap) (Response, error) {
+func readResponse(c net.Conn, fm fieldmap, dev DevInfo) (Response, error) {
 	var r Response
 	aid, err := readAID(c)
 	if err != nil {
@@ -79,7 +79,12 @@ func readResponse(c net.Conn, fm fieldmap) (Response, error) {
 		return r, nil
 	}
 
-	row, col, _, err := readPosition(c)
+	cols := 80
+	if dev != nil {
+		_, cols = dev.altDimensions()
+	}
+
+	row, col, _, err := readPosition(c, cols)
 	if err != nil {
 		return r, err
 	}
@@ -87,7 +92,7 @@ func readResponse(c net.Conn, fm fieldmap) (Response, error) {
 	r.Row = row
 
 	var fieldValues map[string]string
-	if fieldValues, err = readFields(c, fm); err != nil {
+	if fieldValues, err = readFields(c, fm, cols); err != nil {
 		return r, err
 	}
 
@@ -114,7 +119,7 @@ func readAID(c net.Conn) (AID, error) {
 	}
 }
 
-func readPosition(c net.Conn) (row, col, addr int, err error) {
+func readPosition(c net.Conn, cols int) (row, col, addr int, err error) {
 	raw := make([]byte, 2)
 
 	// Read two bytes
@@ -128,8 +133,8 @@ func readPosition(c net.Conn) (row, col, addr int, err error) {
 
 	// Decode the raw position
 	addr = decodeBufAddr([2]byte{raw[0], raw[1]})
-	col = addr % 80
-	row = (addr - col) / 80
+	col = addr % cols
+	row = (addr - col) / cols
 
 	debugf("Got position bytes %02x %02x, decoded to %d\n", raw[0], raw[1],
 		addr)
@@ -137,7 +142,7 @@ func readPosition(c net.Conn) (row, col, addr int, err error) {
 	return row, col, addr, nil
 }
 
-func readFields(c net.Conn, fm fieldmap) (map[string]string, error) {
+func readFields(c net.Conn, fm fieldmap, cols int) (map[string]string, error) {
 	var infield bool
 	var fieldpos int
 	var fieldval bytes.Buffer
@@ -174,7 +179,7 @@ func readFields(c net.Conn, fm fieldmap) (map[string]string, error) {
 			fieldval = bytes.Buffer{}
 			fieldpos = 0
 
-			if _, _, fieldpos, err = readPosition(c); err != nil {
+			if _, _, fieldpos, err = readPosition(c, cols); err != nil {
 				return nil, err
 			}
 			continue
@@ -203,20 +208,13 @@ func handleField(addr int, value []byte, fm fieldmap, values map[string]string) 
 }
 
 // decodeBufAddr decodes a raw 2-byte encoded buffer address and returns the
-// integer value of the address (i.e. 0-1919)
+// integer value of the address.
 func decodeBufAddr(raw [2]byte) int {
-	if decodes[raw[0]] > 254 {
-		fmt.Fprintf(os.Stderr,
-			"UNEXPECTED VALUE: decodeBufAddr got raw value of %02x %02x\n",
-			raw[0], raw[1])
-	}
-	if decodes[raw[1]] > 254 {
-		fmt.Fprintf(os.Stderr,
-			"UNEXPECTED VALUE: decodeBufAddr got raw value of %02x %02x\n",
-			raw[0], raw[1])
+	// 16-bit addressing
+	if raw[0]&0xc0 == 0 {
+		return int(raw[0])<<8 + int(raw[1])
 	}
 
-	hi := decodes[raw[0]] << 6
-	lo := decodes[raw[1]]
-	return hi | lo
+	// 12-bit addressing
+	return int(raw[0]&0x3f)<<6 + int(raw[1]&0x3f)
 }

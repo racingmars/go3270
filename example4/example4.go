@@ -75,8 +75,13 @@ func handle(conn net.Conn, db DB, gblstate *global) {
 	}()
 
 	// Always begin new connection by negotiating the telnet options
-	go3270.NegotiateTelnet(conn)
-	err := go3270.RunTransactions(conn, state.login, nil)
+	devinfo, err := go3270.NegotiateTelnet(conn)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	err = go3270.RunTransactions(conn, devinfo, state.login, nil)
 	if err != nil {
 		fmt.Println(err)
 	}

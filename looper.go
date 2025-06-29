@@ -86,9 +86,23 @@ type FieldRules struct {
 // fields pass validation, OR 2) the user presses a key in exitkeys. In all
 // other cases, HandleScreen will re-present the screen to the user again,
 // possibly with an error message set in the errorField field.
+//
+// For alternate screen support (larger than 24x80), use HandleScreenAlt().
 func HandleScreen(screen Screen, rules Rules, values map[string]string,
 	pfkeys, exitkeys []AID, errorField string, crow, ccol int,
 	conn net.Conn) (Response, error) {
+	return HandleScreenAlt(screen, rules, values, pfkeys, exitkeys, errorField,
+		crow, ccol, conn, nil)
+}
+
+// HandleScreenAlt is identical to HandleScreen, but writes to the "alternate"
+// screen size provided by dev. To write a non-24-by-80 screen, use this
+// HandleScreenAlt function with a non-nil dev. If dev is nil, the behavior is
+// identical to HandleScreen, which is limited to 24x80 and will set larger
+// terminals to the default 24x80 mode.
+func HandleScreenAlt(screen Screen, rules Rules, values map[string]string,
+	pfkeys, exitkeys []AID, errorField string, crow, ccol int,
+	conn net.Conn, dev DevInfo) (Response, error) {
 
 	// Save the original field values for any named fields to support
 	// the MustChange rule. Also build a map of named fields.
@@ -128,7 +142,7 @@ mainloop:
 		}
 
 		resp, err := ShowScreenOpts(screen, myValues, conn,
-			ScreenOpts{CursorRow: crow, CursorCol: ccol})
+			ScreenOpts{CursorRow: crow, CursorCol: ccol, AltScreen: dev})
 		if err != nil {
 			return resp, err
 		}

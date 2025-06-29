@@ -98,6 +98,19 @@ type Screen []Field
 // ScreenOpts are the options that callers may set when sending a screen
 // to the 3270 client.
 type ScreenOpts struct {
+	// If AltScreen is non-nil, the screen will be written to the "alternate"
+	// screen size, which is the non-default (24x80) screen dimensions that
+	// the terminal supports (although for many terminals, the alternate
+	// screen is still just 24x80). If AltScreen is nil, the default (24x80)
+	// mode will be used. Never switch between AltScreen and normal screen
+	// (e.g. AltScreen = nil) unless NoClear is false. (That is, switching
+	// between default and alternate screen size or back requires a screen
+	// clear at the same time.) When AltScreen is nil, field positions in the
+	// screen must be within the 24x80 screen (so rows 0-23 and cols 0-79),
+	// when AltScreen is present, the field positions must be within the
+	// dimensions of the DevInfo.AltDimensions() values.
+	AltScreen DevInfo
+
 	// NoResponse will draw the screen and immediately return, without
 	// waiting for any input data from the remote client.
 	NoResponse bool
@@ -107,12 +120,16 @@ type ScreenOpts struct {
 	// the current screen.
 	NoClear bool
 
-	// CursorRow sets the row (0-indexed) to position the cursor after
-	// sending the screen, when NoClear is false. Maximum value is 23.
+	// CursorRow sets the row (0-indexed) to position the cursor after sending
+	// the screen, when NoClear is false. When AltScreen is nil, maximum value
+	// is 23; otherwise, maximum is 1 less than the number of rows in
+	// AltScreen.
 	CursorRow int
 
 	// CursorCol sets the column (0-indexed) to position the cursor after
-	// sending the screen, when NoClear is false. Maximum value is 79.
+	// sending the screen, when NoClear is false. When AltScreen is nil,
+	// maximum value is 79; otherwise, maximum is 1 less than the number of
+	// columns in AltScreen.
 	CursorCol int
 
 	// PostSendCallback is a function that, if non-nil, will be called after
@@ -159,13 +176,15 @@ type fieldmap map[int]string
 // invalid. That is to say, while waiting for a response, don't perform other
 // actions from another thread that could layout the user input fields
 // differently.
-func ShowScreenOpts(screen Screen, values map[string]string, conn net.Conn,
+
+func ShowScreenOpts(screen Screen,
+	values map[string]string, conn net.Conn,
 	opts ScreenOpts) (Response, error) {
 
 	var resp Response
 
 	fm, err := showScreenInternal(screen, values, opts.CursorRow,
-		opts.CursorCol, conn, !opts.NoClear)
+		opts.CursorCol, conn, !opts.NoClear, opts.AltScreen)
 	if err != nil {
 		return resp, err
 	}
@@ -178,7 +197,7 @@ func ShowScreenOpts(screen Screen, values map[string]string, conn net.Conn,
 	}
 
 	if !opts.NoResponse {
-		resp, err = readResponse(conn, fm)
+		resp, err = readResponse(conn, fm, opts.AltScreen)
 		if err != nil {
 			return resp, err
 		}
@@ -216,13 +235,22 @@ func ShowScreenNoResponse(screen Screen, values map[string]string,
 }
 
 func showScreenInternal(screen Screen, values map[string]string,
-	crow, ccol int, conn net.Conn, clear bool) (fieldmap, error) {
+	crow, ccol int, conn net.Conn, clear bool, dev DevInfo) (fieldmap, error) {
+
+	rows, cols := 24, 80
+	if dev != nil {
+		rows, cols = dev.altDimensions()
+	}
 
 	var b bytes.Buffer
 	var fm = make(fieldmap) // field buffer positions -> name
 
 	if clear {
-		b.WriteByte(0xf5) // Erase/Write to terminal
+		if !(rows == 24 && cols == 80) {
+			b.WriteByte(0x7e) // Erase/Write Alternate to terminal
+		} else {
+			b.WriteByte(0xf5) // Erase/Write to terminal
+		}
 	} else {
 		b.WriteByte(0xf1) // Write to terminal
 	}
@@ -237,12 +265,12 @@ func showScreenInternal(screen Screen, values map[string]string,
 
 	// Build the commands for each field on the screen
 	for _, fld := range screen {
-		if fld.Row < 0 || fld.Row > 23 || fld.Col < 0 || fld.Col > 79 {
+		if fld.Row < 0 || fld.Row > rows-1 || fld.Col < 0 || fld.Col > cols-1 {
 			// Invalid field position
 			continue
 		}
 
-		b.Write(sba(fld.Row, fld.Col))
+		b.Write(sba(fld.Row, fld.Col, cols))
 		b.Write(buildField(fld))
 
 		// Use fld.Content, unless the field is named and appears in the
@@ -262,7 +290,7 @@ func showScreenInternal(screen Screen, values map[string]string,
 		// because we get the position of the field's first input position,
 		// not the position of the field attribute byte).
 		if fld.Write {
-			bufaddr := fld.Row*80 + fld.Col
+			bufaddr := fld.Row*cols + fld.Col
 			fm[bufaddr+1] = fld.Name
 		}
 	}
@@ -271,13 +299,13 @@ func showScreenInternal(screen Screen, values map[string]string,
 	// caller-provided coordinates.
 	if clear {
 		// Set cursor position. Correct out-of-bounds values to 0.
-		if crow < 0 || crow > 23 {
+		if crow < 0 || crow > rows-1 {
 			crow = 0
 		}
-		if ccol < 0 || ccol > 79 {
+		if ccol < 0 || ccol > cols-1 {
 			ccol = 0
 		}
-		b.Write(ic(crow, ccol))
+		b.Write(ic(crow, ccol, cols))
 	}
 
 	b.Write([]byte{0xff, 0xef}) // Telnet IAC EOR
@@ -292,10 +320,10 @@ func showScreenInternal(screen Screen, values map[string]string,
 }
 
 // sba is the "set buffer address" 3270 command.
-func sba(row, col int) []byte {
+func sba(row, col, cols int) []byte {
 	result := make([]byte, 1, 3)
 	result[0] = 0x11 // SBA
-	result = append(result, getpos(row, col)...)
+	result = append(result, getpos(row, col, cols)...)
 	return result
 }
 
@@ -372,20 +400,37 @@ func sfAttribute(write, intense, hidden, skip, numeric bool) byte {
 
 // ic is the "insert cursor" 3270 command. This function will include the
 // appropriate SBA command.
-func ic(row, col int) []byte {
+func ic(row, col, cols int) []byte {
 	result := make([]byte, 0, 3)
-	result = append(result, sba(row, col)...)
+	result = append(result, sba(row, col, cols)...)
 	result = append(result, 0x13) // IC
 	return result
 }
 
 // getpos translates row and col to buffer address control characters.
-func getpos(row, col int) []byte {
-	result := make([]byte, 2)
-	address := row*80 + col
-	hi := (address & 0xfc0) >> 6
-	lo := address & 0x3f
-	result[0] = codes[hi]
-	result[1] = codes[lo]
-	return result
+func getpos(row, col, cols int) []byte {
+	address := row*cols + col
+
+	// Use 12-bit addressing if the buffer address fits in 12 bits
+	if address < 1<<12 {
+		hi := (address & 0xfc0) >> 6
+		lo := address & 0x3f
+		return []byte{codes[hi], codes[lo]}
+	}
+
+	// Otherwise, use 14-bit addressing. The library limits terminal size to
+	// fit within 14-bit addressing, because 16-bit addressing would require
+	// us to track state that the current API design doesn't lend itself to.
+	// Someday, perhaps in a v2 library version, we'll support absurdly large
+	// terminal sizes. But for now, 14 bits is as big as we can go.
+	hi := (address & 0x3f00) >> 8
+	lo := address & 0xff
+
+	// It's possible the low byte is 0xff, in which case we need to telnet-
+	// escape it.
+	if lo == 0xff {
+		return []byte{byte(hi), 0xff, byte(lo)}
+	}
+
+	return []byte{byte(hi), byte(lo)}
 }

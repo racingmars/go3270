@@ -49,7 +49,10 @@ func handle(conn net.Conn) {
 	defer conn.Close()
 
 	// Always begin new connection by negotiating the telnet options
-	go3270.NegotiateTelnet(conn)
+	if _, err := go3270.NegotiateTelnet(conn); err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	// First, let's send the initial screen and wait forever for the user to
 	// press PF3, and when we get it, send a message on the done channel.
