@@ -13,13 +13,15 @@ import (
 // Field is a field on the 3270 screen.
 type Field struct {
 	// Row is the row, 0-based, that the field attribute character should
-	// begin at. This library currently only supports 24 rows, so Row must
-	// be 0-23.
+	// begin at. When using the standard screen of 24 rows, Row must be 0-23.
+	// When writing to the alternate screen, Row may be up to 1 less than the
+	// number of rows on the screen.
 	Row int
 
 	// Col is the column, 0-based, that the field attribute character should
-	// begin at. This library currently only supposed 80 columns, so Column
-	// must be 0-79.
+	// begin at. When using the standard screen of 80 columns, Col must be
+	// 0-79. When writing to the alternate screen, Col may be up to 1 less
+	// than the number of columns on the screen.
 	Col int
 
 	// Text is the content of the field to display.
@@ -54,6 +56,8 @@ type Field struct {
 
 	// Name is the name of this field, which is used to get the user-entered
 	// data. All writeable fields on a screen must have a unique name.
+	// Protected fields may also have a name to populate them dynamically when
+	// the screen is sent.
 	Name string
 
 	// KeepSpaces will prevent the strings.TrimSpace() function from being
@@ -90,9 +94,10 @@ const (
 	Underscore       Highlight = 0xf4
 )
 
-// Screen is an array of Fields which compose a complete 3270 screen.
-// No checking is performed for lack of overlapping fields, unique field
-// names,
+// Screen is an array of Fields which compose a complete 3270 screen. No
+// checking is performed for lack of overlapping fields, unique field names,
+// fields out of bounds of the screen size (these will simply be omitted from
+// the datastream), etc.
 type Screen []Field
 
 // ScreenOpts are the options that callers may set when sending a screen
@@ -153,7 +158,7 @@ type fieldmap map[int]string
 // ShowScreenOpts writes the 3270 datastream for the screen, with the provided
 // ScreenOpts, to a connection.
 //
-// Fields that aren't valid (e.g. outside of the 24x80 screen) are silently
+// Fields that aren't valid (e.g. outside of the screen size) are silently
 // ignored. If a named field has an entry in the values map, the content of
 // the field from the values map is used INSTEAD OF the Field struct's Content
 // field. The values map may be nil if no overrides are needed.
@@ -176,7 +181,6 @@ type fieldmap map[int]string
 // invalid. That is to say, while waiting for a response, don't perform other
 // actions from another thread that could layout the user input fields
 // differently.
-
 func ShowScreenOpts(screen Screen,
 	values map[string]string, conn net.Conn,
 	opts ScreenOpts) (Response, error) {
