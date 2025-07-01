@@ -221,7 +221,7 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 		return &deviceInfo{24, 80, termtype}, nil
 	case "IBM-3278-3", "IBM-3278-3-E", "IBM-3279-3", "IBM-3279-3-E":
 		return &deviceInfo{32, 80, termtype}, nil
-	case "IBM-3278-4", "IBM-3278-4-E":
+	case "IBM-3278-4", "IBM-3278-4-E", "IBM-3279-4", "IBM-3279-4-E":
 		return &deviceInfo{43, 80, termtype}, nil
 	case "IBM-3278-5", "IBM-3278-5-E":
 		return &deviceInfo{27, 132, termtype}, nil
