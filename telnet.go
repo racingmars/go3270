@@ -7,6 +7,7 @@ package go3270
 import (
 	"errors"
 	"net"
+	"regexp"
 	"time"
 )
 
@@ -212,19 +213,24 @@ func getTerminalType(conn net.Conn) (string, error) {
 	return string(buf[4 : n-2]), nil
 }
 
+var modelRegex = regexp.MustCompile(`^IBM-\d{4}-([2-5])`)
+
 func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
-	// Known fixed size device types. All modern tn3270 clients should
-	// report as 3278, but we'll also include 3277 and 3279 just in case.
-	switch termtype {
-	case "IBM-3277-2", "IBM-3277-2-E", "IBM-3278-2", "IBM-3278-2-E",
-		"IBM-3279-2", "IBM-3279-2-E":
-		return &deviceInfo{24, 80, termtype}, nil
-	case "IBM-3278-3", "IBM-3278-3-E", "IBM-3279-3", "IBM-3279-3-E":
-		return &deviceInfo{32, 80, termtype}, nil
-	case "IBM-3278-4", "IBM-3278-4-E", "IBM-3279-4", "IBM-3279-4-E":
-		return &deviceInfo{43, 80, termtype}, nil
-	case "IBM-3278-5", "IBM-3278-5-E":
-		return &deviceInfo{27, 132, termtype}, nil
+	// tn3270e restricts to a small list of valid models, but since we're
+	// not doing tn3270e, we are seeing a variety of model numbers. We'll
+	// generically handle anything claiming to be a -2, -3, -4, or -5 type.
+	modelresult := modelRegex.FindStringSubmatch(termtype)
+	if len(modelresult) == 2 {
+		switch modelresult[1] {
+		case "2":
+			return &deviceInfo{24, 80, termtype}, nil
+		case "3":
+			return &deviceInfo{32, 80, termtype}, nil
+		case "4":
+			return &deviceInfo{43, 80, termtype}, nil
+		case "5":
+			return &deviceInfo{27, 132, termtype}, nil
+		}
 	}
 
 	// If it's not a fixed-size type, it should be IBM-DYNAMIC. If it isn't,
