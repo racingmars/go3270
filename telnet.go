@@ -6,6 +6,7 @@ package go3270
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"regexp"
 	"time"
@@ -76,11 +77,17 @@ var errOptionRejected = errors.New("option rejected")
 // telnet connection, conn.
 func NegotiateTelnet(conn net.Conn) (DevInfo, error) {
 
+	// Sometimes the client will trigger us to send our "will" assertions
+	// sooner than we otherwise would. Keep track here so we know not to send
+	// them again.
+	var sentWillBin, sentWillEOR bool
+
 	// Enable terminal type option
 	if _, err := conn.Write([]byte{iac, do, terminalType}); err != nil {
 		return nil, err
 	}
-	err := checkOptionResponse(conn, terminalType, do)
+	err := checkOptionResponse(conn, terminalType, do,
+		&sentWillEOR, &sentWillBin)
 	if err == errOptionRejected || err == ErrTelnetError {
 		return nil, ErrNo3270
 	} else if err != nil {
@@ -98,7 +105,8 @@ func NegotiateTelnet(conn net.Conn) (DevInfo, error) {
 
 	// Request end of record mode
 	conn.Write([]byte{iac, do, eorOption})
-	err = checkOptionResponse(conn, eorOption, do)
+	err = checkOptionResponse(conn, eorOption, do,
+		&sentWillEOR, &sentWillBin)
 	if err == errOptionRejected || err == ErrTelnetError {
 		return nil, ErrNo3270
 	} else if err != nil {
@@ -107,29 +115,65 @@ func NegotiateTelnet(conn net.Conn) (DevInfo, error) {
 
 	// Request binary mode
 	conn.Write([]byte{iac, do, binaryOption})
-	err = checkOptionResponse(conn, binaryOption, do)
+	err = checkOptionResponse(conn, binaryOption, do,
+		&sentWillEOR, &sentWillBin)
 	if err == errOptionRejected || err == ErrTelnetError {
 		return nil, ErrNo3270
 	} else if err != nil {
 		return nil, err
+	}
+
+	// It's possible there are already some client requests in the queue
+	// that we haven't processed yet. We'll need to consume any outstanding
+	// requests here and respond if necessary.
+	var buf [3]byte
+	for {
+		conn.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
+		n, err := conn.Read(buf[:])
+		conn.SetReadDeadline(time.Time{})
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				// No data waiting. We expect to eventually break out of the
+				// for loop here.
+				break
+			} else {
+				return nil, err
+			}
+		} else if n == 3 {
+			if buf[0] == iac && buf[1] == do && buf[2] == eorOption {
+				conn.Write([]byte{iac, will, eorOption})
+				sentWillEOR = true
+			} else if buf[0] == iac && buf[1] == do && buf[2] == binaryOption {
+				conn.Write([]byte{iac, will, binaryOption})
+				sentWillBin = true
+			}
+		} else {
+			fmt.Println("SHORT READ SHORT READ")
+		}
 	}
 
 	// Enter end of record mode
-	conn.Write([]byte{iac, will, eorOption})
-	err = checkOptionResponse(conn, eorOption, will)
-	if err == errOptionRejected || err == ErrTelnetError {
-		return nil, ErrNo3270
-	} else if err != nil {
-		return nil, err
+	if !sentWillEOR {
+		conn.Write([]byte{iac, will, eorOption})
+		err = checkOptionResponse(conn, eorOption, will,
+			&sentWillEOR, &sentWillBin)
+		if err == errOptionRejected || err == ErrTelnetError {
+			return nil, ErrNo3270
+		} else if err != nil {
+			return nil, err
+		}
 	}
 
 	// Enter binary mode
-	conn.Write([]byte{iac, will, binaryOption})
-	err = checkOptionResponse(conn, binaryOption, will)
-	if err == errOptionRejected || err == ErrTelnetError {
-		return nil, ErrNo3270
-	} else if err != nil {
-		return nil, err
+	if !sentWillBin {
+		conn.Write([]byte{iac, will, binaryOption})
+		err = checkOptionResponse(conn, binaryOption, will,
+			&sentWillEOR, &sentWillBin)
+		if err == errOptionRejected || err == ErrTelnetError {
+			return nil, ErrNo3270
+		} else if err != nil {
+			return nil, err
+		}
 	}
 
 	devinfo, err := makeDeviceInfo(conn, devtype)
@@ -143,7 +187,11 @@ func NegotiateTelnet(conn net.Conn) (DevInfo, error) {
 // checkOptionResponse will check for the client's "will/wont" (if mode is do)
 // or "do/dont" (if mode is will) response. mode is the option command the
 // server just sent, and option is the option code to check for.
-func checkOptionResponse(conn net.Conn, option, mode byte) error {
+//
+// If we end up getting a client request instead, we'll response and set
+// sentEor or sentBin before trying to read the response again.
+func checkOptionResponse(conn net.Conn, option, mode byte,
+	sentEor, sentBin *bool) error {
 	var buf [3]byte
 
 	var expectedYes, expectedNo byte
@@ -165,6 +213,25 @@ func checkOptionResponse(conn net.Conn, option, mode byte) error {
 	if n < 3 || buf[0] != iac {
 		return ErrTelnetError
 	}
+
+	// If the client is requesting to negotiate a mode with us before the
+	// response to our request, we'll satisfy it if it's one of the expected
+	// modes and then try to read the client's response again.
+	//
+	// We only want to do this if we're not already expecting a "do" response
+	// for the particular option.
+	if !(expectedYes == do && buf[2] == option) {
+		if buf[0] == iac && buf[1] == do && buf[2] == eorOption {
+			conn.Write([]byte{iac, will, eorOption})
+			*sentEor = true
+			return checkOptionResponse(conn, option, mode, sentEor, sentBin)
+		} else if buf[0] == iac && buf[1] == do && buf[2] == binaryOption {
+			conn.Write([]byte{iac, will, binaryOption})
+			*sentBin = true
+			return checkOptionResponse(conn, option, mode, sentEor, sentBin)
+		}
+	}
+
 	if buf[1] == expectedNo {
 		// Was the correct option rejected?
 		if buf[2] != option {
@@ -234,9 +301,10 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 	}
 
 	// If it's not a fixed-size type, it should be IBM-DYNAMIC. If it isn't,
-	// we don't know how to deal with it.
+	// we don't know how to deal with it. We'll just fall back on a simple
+	// 24x80 assumption.
 	if termtype != "IBM-DYNAMIC" {
-		return nil, ErrUnknownTerminal
+		return &deviceInfo{24, 80, "unknown (" + termtype + ")"}, nil
 	}
 
 	// For IBM-DYNAMIC, we need to discover the alternate screen size with
