@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"regexp"
 	"time"
 )
@@ -325,9 +326,22 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 		return nil, err
 	}
 
+	// Now... the problem here is that the command we used, Read Partition -
+	// Query, may only work on tn3270e connections. We didn't negotiate
+	// tn3270e, we're just using "classic" tn3270. If the client doesn't do
+	// anything with the command we sent ([cx]3270, PCOMM don't respond; Vista
+	// TN3270 does), we'll allow for a timeout on this read or else we'll
+	// block forever here.
 	var aid [1]byte
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	n, err := conn.Read(aid[:])
-	if err != nil {
+	conn.SetReadDeadline(time.Time{})
+	if err != nil && errors.Is(err, os.ErrDeadlineExceeded) {
+		// Timeout. In this case, we'll assume it's because the client didn't
+		// reply to our query command. In that case, we'll fall back to
+		// treating the terminal as a 24x80.
+		return &deviceInfo{24, 80, termtype}, nil
+	} else if err != nil {
 		return nil, err
 	}
 	if n != 1 || aid[0] != byte(aidQueryResponse) {
