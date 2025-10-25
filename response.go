@@ -160,8 +160,9 @@ func readFields(c net.Conn, fm fieldmap, cols int) (map[string]string, error) {
 		if eor {
 			// Finish the current field
 			if infield {
-				debugf("Field %d: %s\n", fieldpos, e2a(fieldval.Bytes()))
-				handleField(fieldpos, fieldval.Bytes(), fm, values)
+				value := decode(fieldval.Bytes())
+				debugf("Field %d: %s\n", fieldpos, value)
+				handleField(fieldpos, value, fm, values)
 			}
 
 			return values, nil
@@ -171,8 +172,9 @@ func readFields(c net.Conn, fm fieldmap, cols int) (map[string]string, error) {
 		if b == 0x11 {
 			// Finish the previous field, if necessary
 			if infield {
-				debugf("Field %d: %s\n", fieldpos, e2a(fieldval.Bytes()))
-				handleField(fieldpos, fieldval.Bytes(), fm, values)
+				value := decode(fieldval.Bytes())
+				debugf("Field %d: %s\n", fieldpos, value)
+				handleField(fieldpos, value, fm, values)
 			}
 			// Start a new field
 			infield = true
@@ -194,7 +196,7 @@ func readFields(c net.Conn, fm fieldmap, cols int) (map[string]string, error) {
 	}
 }
 
-func handleField(addr int, value []byte, fm fieldmap, values map[string]string) bool {
+func handleField(addr int, value string, fm fieldmap, values map[string]string) bool {
 	name, ok := fm[addr]
 
 	// Field is not present in the fieldmap
@@ -203,7 +205,7 @@ func handleField(addr int, value []byte, fm fieldmap, values map[string]string) 
 	}
 
 	// Otherwise, populate the value
-	values[name] = string(e2a(value))
+	values[name] = value
 	return true
 }
 

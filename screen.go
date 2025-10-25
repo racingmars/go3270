@@ -286,7 +286,7 @@ func showScreenInternal(screen Screen, values map[string]string,
 			}
 		}
 		if content != "" {
-			b.Write(a2e([]byte(content)))
+			b.Write(encode(content))
 		}
 
 		// If a writable field, add it to the field map. We add 1 to bufaddr

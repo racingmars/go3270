@@ -24,6 +24,17 @@ Here's [a video introducing the library][introVideo] as well.
 
 [introVideo]: https://www.youtube.com/watch?v=h9XTjup5W5U
 
+A note on code pages
+--------------------
+
+After careful consideration, I have decided that the code page we will support for EBCDIC is IBM CP1047.
+
+In suite3270 (e.g. c3270/x3270), the default code page is what it calls "brackets". This is CP37 with the [, ], Ý, and ¨ characters swapped around. This ends up placing all four of those characters in the correct place for 1047 (and thus they will work correctly with go3270 by default). However, the ^ and ¬ characters are swapped relative to CP1047. (Or, more succinctly, you could say the suite3270 "brackets" codepage is CP1047 with the ^ and ¬ characters swapped back to where they are in CP37). If you plan on using the ^ and ¬ characters, run c/x3270 in proper 1047 mode, `c3270 -codepage 1047` or make it your default by setting the `c3270.codePage` resource to `1047` in your `.c3270pro` file, for example.
+
+In Vista TN3270, "United States" is the default code page. This is CP1047 and will map 100% correctly.
+
+In IBM PCOMM, CP37 is the default. For correct mapping of [, ], Ý, ¨, ^, and ¬, you must switch the session parameters from "037 United States" to "1047 United States".
+
 3270 information
 ----------------
 
