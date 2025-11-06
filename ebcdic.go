@@ -32,7 +32,7 @@ import (
 // IBM CP 1047 <-> Unicode mappings from:
 // https://raw.githubusercontent.com/unicode-org/icu-data/refs/heads/main/charset/data/ucm/glibc-IBM1047-2.1.2.ucm
 
-var cp1047ToUnicode []rune = []rune{
+var cp1047ToUnicode = []rune{
 	/*         x0    x1    x2    x3    x4    x5    x6    x7    x8    x9    xA    xB    xC    xD    xE    xF */
 	/* 0x */ 0x00, 0x01, 0x02, 0x03, 0x9C, 0x09, 0x86, 0x7F, 0x97, 0x8D, 0x8E, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
 	/* 1x */ 0x10, 0x11, 0x12, 0x13, 0x9D, 0x85, 0x08, 0x87, 0x18, 0x19, 0x92, 0x8F, 0x1C, 0x1D, 0x1E, 0x1F,
@@ -52,7 +52,7 @@ var cp1047ToUnicode []rune = []rune{
 	/* Fx */ 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0xB3, 0xDB, 0xDC, 0xD9, 0xDA, 0x9F,
 }
 
-var unicodeToCP1047 []byte = []byte{
+var unicodeToCP1047 = []byte{
 	/*         x0    x1    x2    x3    x4    x5    x6    x7    x8    x9    xA    xB    xC    xD    xE    xF */
 	/* 0x */ 0x00, 0x01, 0x02, 0x03, 0x37, 0x2D, 0x2E, 0x2F, 0x16, 0x05, 0x25, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
 	/* 1x */ 0x10, 0x11, 0x12, 0x13, 0x3C, 0x3D, 0x32, 0x26, 0x18, 0x19, 0x3F, 0x27, 0x1C, 0x1D, 0x1E, 0x1F,
@@ -72,21 +72,89 @@ var unicodeToCP1047 []byte = []byte{
 	/* Fx */ 0x8C, 0x49, 0xCD, 0xCE, 0xCB, 0xCF, 0xCC, 0xE1, 0x70, 0xDD, 0xDE, 0xDB, 0xDC, 0x8D, 0x8E, 0xDF,
 }
 
-// decode will convert a CP1047 byte array into a UTF-8 Go string.
+// Furthermore, certain characters are supported in the "graphic escape"
+// CP310. These are arbitrary Unicode code points, so we will look them up via
+// a map. For simplicity of our mapping implementation, we will not support the
+// italic underlined A-Z characters that require combining characters.
+//
+// https://public.dhe.ibm.com/software/globalization/gcoc/attachments/CP00310.pdf
+var unicodeToCP310 = map[rune]byte{
+	'◊': 0x70, '⋄': 0x70, '◆': 0x70, '∧': 0x71, '⋀': 0x71, '¨': 0x72,
+	'⌻': 0x73, '⍸': 0x74, '⍷': 0x75, '⊢': 0x76, '⊣': 0x77, '∨': 0x78,
+	'∼': 0x80, '║': 0x81, '═': 0x82, '⎸': 0x83, '⎹': 0x84, '│': 0x85,
+	'⎥': 0x85, '↑': 0x8A, '↓': 0x8B, '≤': 0x8C, '⌈': 0x8D, '⌊': 0x8E,
+	'→': 0x8F, '⎕': 0x90, '▌': 0x91, '▐': 0x92, '▀': 0x93, '▄': 0x94,
+	'█': 0x95, '⊃': 0x9A, '⊂': 0x9B, '⌑': 0x9C, '¤': 0x9C, '○': 0x9D,
+	'±': 0x9E, '←': 0x9F, '¯': 0xA0, '‾': 0xA0, '°': 0xA1, '─': 0xA2,
+	'∙': 0xA3, '•': 0xA3, 'ₙ': 0xA4, '∩': 0xAA, '⋂': 0xAA, '∪': 0xAB,
+	'⋃': 0xAB, '⊥': 0xAC, '≥': 0xAE, '∘': 0xAF, '⍺': 0xB0, 'α': 0xB0,
+	'∊': 0xB1, '∈': 0xB1, 'ε': 0xB1, '⍳': 0xB2, 'ι': 0xB2, '⍴': 0xB3,
+	'ρ': 0xB3, '⍵': 0xB4, 'ω': 0xB4, '×': 0xB6, '∖': 0xB7, '÷': 0xB8,
+	'∇': 0xBA, '∆': 0xBB, '⊤': 0xBC, '≠': 0xBE, '∣': 0xBF, '⁽': 0xC1,
+	'⁺': 0xC2, '■': 0xC3, '∎': 0xC3, '└': 0xC4, '┌': 0xC5, '├': 0xC6,
+	'┴': 0xC7, '⍲': 0xCA, '⍱': 0xCB, '⌷': 0xCC, '⌽': 0xCD, '⍂': 0xCE,
+	'⍉': 0xCF, '⁾': 0xD1, '⁻': 0xD2, '┼': 0xD3, '┘': 0xD4, '┐': 0xD5,
+	'┤': 0xD6, '┬': 0xD7, '¶': 0xD8, '⌶': 0xDA, 'ǃ': 0xDB, '⍒': 0xDC,
+	'⍋': 0xDD, '⍞': 0xDE, '⍝': 0xDF, '≡': 0xE0, '₁': 0xE1, '₂': 0xE2,
+	'₃': 0xE3, '⍤': 0xE4, '⍥': 0xE5, '⍪': 0xE6, '€': 0xE7, '⌿': 0xEA,
+	'⍀': 0xEB, '∵': 0xEC, '⊖': 0xED, '⌹': 0xEE, '⍕': 0xEF, '⁰': 0xF0,
+	'¹': 0xF1, '²': 0xF2, '³': 0xF3, '⁴': 0xF4, '⁵': 0xF5, '⁶': 0xF6,
+	'⁷': 0xF7, '⁸': 0xF8, '⁹': 0xF9, '⍫': 0xFB, '⍙': 0xFC, '⍟': 0xFD,
+	'⍎': 0xFE,
+}
+
+// '�', the Unicode replacement character, is used as a placeholder in byte
+// positions that are not assigned in this codepage.
+var cp310ToUnicode = []rune{
+	/*       x0   x1   x2   x3   x4   x5   x6   x7   x8   x9   xA   xB   xC   xD   xE   xF */
+	/* 0x */ '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
+	/* 1x */ '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
+	/* 2x */ '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
+	/* 3x */ '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
+	/* 4x */ '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
+	/* 5x */ '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
+	/* 6x */ '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
+	/* 7x */ '◊', '∧', '¨', '⌻', '⍸', '⍷', '⊢', '⊣', '∨', '�', '�', '�', '�', '�', '�', '�',
+	/* 8x */ '∼', '║', '═', '⎸', '⎹', '⎥', '�', '�', '�', '�', '↑', '↓', '≤', '⌈', '⌊', '→',
+	/* 9x */ '⎕', '▌', '▐', '▀', '▄', '█', '�', '�', '�', '�', '⊃', '⊂', '⌑', '○', '±', '←',
+	/* Ax */ '‾', '°', '─', '•', 'ₙ', '�', '�', '�', '�', '�', '∩', '⋃', '⊥', '�', '≥', '∘',
+	/* Bx */ '⍺', '∈', '⍳', '⍴', 'ω', '�', '×', '∖', '÷', '�', '∇', '∆', '⊤', '�', '≠', '∣',
+	/* Cx */ '�', '⁽', '⁺', '■', '└', '┌', '├', '┴', '�', '�', '⍲', '⍱', '⌷', '⌽', '⍂', '⍉',
+	/* Dx */ '�', '⁾', '⁻', '┼', '┘', '┐', '┤', '┬', '¶', '�', '⌶', 'ǃ', '⍒', '⍋', '⍞', '⍝',
+	/* Ex */ '≡', '₁', '₂', '₃', '⍤', '⍥', '⍪', '€', '�', '�', '⌿', '⍀', '∵', '⊖', '⌹', '⍕',
+	/* Fx */ '⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹', '�', '⍫', '⍙', '⍟', '⍎', '�',
+}
+
+// decode will convert a CP1047 byte array into a UTF-8 Go string, handling
+// graphic escape to CP310.
 func decode(b []byte) string {
-	// There is complete 1:1 mapping of all 8-bit values
-	runes := make([]rune, len(b))
+	runes := make([]rune, 0, len(b))
+	var escape bool
 	for i := range b {
-		runes[i] = cp1047ToUnicode[b[i]]
+		if escape {
+			escape = false
+			if cp310ToUnicode[b[i]] != '�' {
+				runes = append(runes, cp310ToUnicode[b[i]])
+			} else {
+				runes = append(runes, 0x1A) // Unicode substitute
+			}
+		} else {
+			// Enter graphic escape mode if necessary.
+			if b[i] == 0x08 {
+				escape = true
+				continue
+			}
+			// Otherwise perform the mapping.
+			runes = append(runes, cp1047ToUnicode[b[i]])
+		}
+
 	}
 	return string(runes) // conversion to UTF-8 is automatic
 }
 
 // encode will convert a UTF-8 Go string into a CP1047 byte array.
 func encode(s string) []byte {
-	// Output CP1047 bytes will be no more than input UTF-8 bytes
-	out := make([]byte, len(s))
-	n := 0
+	out := make([]byte, 0, len(s))
 
 	for len(s) > 0 {
 		r, size := utf8.DecodeRuneInString(s)
@@ -96,14 +164,16 @@ func encode(s string) []byte {
 		}
 
 		if int(r) < len(unicodeToCP1047) {
-			out[n] = unicodeToCP1047[r]
+			out = append(out, unicodeToCP1047[r])
+		} else if v, ok := unicodeToCP310[r]; ok {
+			// include graphic escape character to switch to CP310
+			out = append(out, 0x08, v)
 		} else {
 			// replacement/substitute character
-			out[n] = 0x3f
+			out = append(out, 0x3f)
 		}
-		n++
 		s = s[size:]
 	}
 
-	return out[:n]
+	return out
 }

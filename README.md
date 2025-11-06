@@ -35,6 +35,8 @@ In Vista TN3270, "United States" is the default code page. This is CP1047 and wi
 
 In IBM PCOMM, CP37 is the default. For correct mapping of [, ], Ý, ¨, ^, and ¬, you must switch the session parameters from "037 United States" to "1047 United States".
 
+Additionally, most characters from the "graphic escape" code page 310 are supported. Correct display on the client will depend on its support of graphic escape and correct characters being available in its font. Use the corresponding Unicode characters in your Go UTF-8 strings and they will be sent as the EBCDIC two-byte sequence of 0x08 followed by the position in code page 310. GE sequences are also processed on incoming field values.
+
 3270 information
 ----------------
 
