@@ -41,10 +41,28 @@ In IBM PCOMM, CP37 is the default. For correct mapping of [, ], Ý, ¨, ^, and �
 
 Additionally, most characters from the "graphic escape" code page 310 are supported. Correct display on the client will depend on its support of graphic escape and correct characters being available in its font. Use the corresponding Unicode characters in your Go UTF-8 strings and they will be sent as the EBCDIC two-byte sequence of 0x08 followed by the position in code page 310. GE sequences are also processed on incoming field values.
 
+3270e mode
+----------
+
+Due to the design of the original API for this library (the lack of per-connection state information), it is not possible to support both tn3270 and tn3270e and auto-negotiate what the client supports. The library has traditionally used tn3270. It is possible to make the library globally operate in tn3270e mode by importing the `github.com/racingmars/go3270/tn3270e` package anywhere in your project, which has the side-effect of setting the global operating mode to tn3270e. There aren't any functional differences between the modes right now, except tn3270e mode might more successfully reject non-tn3270e clients at initial connection time.
+
+For example, in your program's main.go, you would opt-in to global 3270e mode with:
+
+```
+package main
+
+import (
+    "github.com/racingmars/go3270"
+    _ "github.com/racingmars/go3270/tn3270e"
+)
+```
+
+tn3270e mode is currently experimental, please report any oddities you observe with it.
+
 3270 information
 ----------------
 
-I started learning about 3270 data streams from [Tommy Sprinkle's tutorial][sprinkle]. The tn3270 telnet negotiation is gleaned from [RFC 1576: TN3270 Current Practices][rfc1576], [RFC 1041: Telnet 3270 Regime Option][rfc1041], and [RFC 854: Telnet Protocol Specification][rfc854]. The IANA maintains a [useful reference of telnet option numbers][telnetOptions]. The reference I use for 3270 data streams is [the 1981 version from IBM][ibmref].
+I started learning about 3270 data streams from [Tommy Sprinkle's tutorial][sprinkle]. The tn3270 telnet negotiation is gleaned from [RFC 1576: TN3270 Current Practices][rfc1576], [RFC 1041: Telnet 3270 Regime Option][rfc1041], and [RFC 854: Telnet Protocol Specification][rfc854]. The IANA maintains a [useful reference of telnet option numbers][telnetOptions]. The reference I use for 3270 data streams is [the 1981 version from IBM][ibmref]. tn3270e is described in [RFC 2355: TN3270 Enhancements][rfc2355].
 
 [sprinkle]: http://www.tommysprinkle.com/mvs/P3270/
 [rfc1576]: https://tools.ietf.org/html/rfc1576
@@ -52,6 +70,7 @@ I started learning about 3270 data streams from [Tommy Sprinkle's tutorial][spri
 [rfc854]: https://tools.ietf.org/html/rfc854
 [telnetOptions]: https://www.iana.org/assignments/telnet-options/telnet-options.xhtml
 [ibmref]: https://bitsavers.org/pdf/ibm/3270/GA23-0059-0_3270_Data_Stream_Programmers_Reference_Jan1981.pdf
+[rfc2355]: https://tools.ietf.org/html/rfc2355
 
 License
 -------

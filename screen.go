@@ -8,6 +8,8 @@ import (
 	"bytes"
 	"net"
 	"strings"
+
+	"github.com/racingmars/go3270/internal"
 )
 
 // Field is a field on the 3270 screen.
@@ -248,6 +250,11 @@ func showScreenInternal(screen Screen, values map[string]string,
 
 	var b bytes.Buffer
 	var fm = make(fieldmap) // field buffer positions -> name
+
+	// Add 3270e header if in 3270e mode
+	if internal.TN3270e {
+		b.Write([]byte{0x00, 0x00, 0x00, 0x00, 0x00})
+	}
 
 	if clear {
 		if !(rows == 24 && cols == 80) {

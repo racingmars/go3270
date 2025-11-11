@@ -5,12 +5,15 @@
 package go3270
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"regexp"
 	"time"
+
+	"github.com/racingmars/go3270/internal"
 )
 
 // DevInfo provides information about the terminal that is connected.
@@ -57,11 +60,23 @@ const (
 	terminalType     = 24 // 0x18
 	terminalTypeIs   = 0
 	terminalTypeSend = 1
+
+	tn3270e           = 40
+	tn3270eConnect    = 1
+	tn3270eDeviceType = 2
+	tn3270eFunctions  = 3
+	tn3270eIs         = 4
+	tn3270eRequest    = 7
+	tn3270eSend       = 8
 )
 
 // ErrNo3270 indicates that the telnet client did not respond properly to the
 // options negotiation that are expected for a tn3270 client.
 var ErrNo3270 = errors.New("couldn't negotiate telnet options for tn3270")
+
+// ErrNo3270e indicates that the telnet client did not respond properly to the
+// options negotiation that are expected for a tn3270e client.
+var ErrNo3270e = errors.New("couldn't negotiate telnet options for tn3270e")
 
 // ErrTelnetError indicates an unexpected response was encountered in the
 // telnet protocol.
@@ -76,8 +91,24 @@ var errOptionRejected = errors.New("option rejected")
 
 // NegotiateTelnet will negotiate the options necessary for tn3270 on a new
 // telnet connection, conn.
+//
+// By default, the library operates in tn3270 mode. If you import the package
+// github.com/racingmars/go3270/tn3270e, the library will globally operate in
+// tn3270e mode, e.g:
+//
+//	import (
+//		"github.com/racingmars/go3270"
+//		_ "github.com/racingmars/go3270/tn3270e"
+//	)
 func NegotiateTelnet(conn net.Conn) (DevInfo, error) {
+	if internal.TN3270e {
+		return negotiateTelnet3270e(conn)
+	}
 
+	return negotiateTelnet3270(conn)
+}
+
+func negotiateTelnet3270(conn net.Conn) (DevInfo, error) {
 	// Sometimes the client will trigger us to send our "will" assertions
 	// sooner than we otherwise would. Keep track here so we know not to send
 	// them again.
@@ -185,6 +216,40 @@ func NegotiateTelnet(conn net.Conn) (DevInfo, error) {
 	return devinfo, nil
 }
 
+func negotiateTelnet3270e(conn net.Conn) (DevInfo, error) {
+	// "DO TN3270E"
+	if _, err := conn.Write([]byte{iac, do, tn3270e}); err != nil {
+		return nil, err
+	}
+	err := checkOptionResponse3270e(conn, tn3270e, do)
+	if err == errOptionRejected || err == ErrTelnetError {
+		return nil, ErrNo3270e
+	} else if err != nil {
+		return nil, err
+	}
+
+	devtype, err := getTerminalType3270e(conn)
+	if err == ErrTelnetError {
+		return nil, ErrNo3270e
+	} else if err != nil {
+		return nil, err
+	}
+
+	// Now we expect the client to request functions. We don't support any
+	// functions beyond basic tn3270e, so we will respond with a null
+	// functions list.
+	if err := negotiateFunctions3270e(conn); err != nil {
+		return nil, err
+	}
+
+	devinfo, err := makeDeviceInfo(conn, devtype)
+	if err != nil {
+		return nil, err
+	}
+
+	return devinfo, nil
+}
+
 // checkOptionResponse will check for the client's "will/wont" (if mode is do)
 // or "do/dont" (if mode is will) response. mode is the option command the
 // server just sent, and option is the option code to check for.
@@ -253,6 +318,49 @@ func checkOptionResponse(conn net.Conn, option, mode byte,
 	return nil
 }
 
+func checkOptionResponse3270e(conn net.Conn, option, mode byte) error {
+	var buf [3]byte
+
+	var expectedYes, expectedNo byte
+	switch mode {
+	case do:
+		expectedYes = will
+		expectedNo = wont
+	case will:
+		expectedYes = do
+		expectedNo = dont
+	default:
+		return ErrTelnetError
+	}
+
+	n, err := conn.Read(buf[:])
+	if err != nil {
+		return err
+	}
+	if n < 3 || buf[0] != iac {
+		return ErrTelnetError
+	}
+
+	if buf[1] == expectedNo {
+		// Was the correct option rejected?
+		if buf[2] != option {
+			return ErrTelnetError
+		}
+		return errOptionRejected
+	}
+	if buf[1] != expectedYes {
+		return ErrTelnetError
+	}
+
+	// We have "will" now. But for the right option?
+	if buf[2] != option {
+		return ErrTelnetError
+	}
+
+	// All good, client accepted the option we requested.
+	return nil
+}
+
 // getTerminalType reads the response to a "send terminal type" option
 // subfield command.
 func getTerminalType(conn net.Conn) (string, error) {
@@ -279,6 +387,113 @@ func getTerminalType(conn net.Conn) (string, error) {
 	// Everything looks good. The terminal type is an ASCII string between all
 	// the control/command bytes.
 	return string(buf[4 : n-2]), nil
+}
+
+func getTerminalType3270e(conn net.Conn) (string, error) {
+	var buf [100]byte
+	var termtype string
+
+	conn.Write([]byte{iac, sb, tn3270e, tn3270eSend, tn3270eDeviceType,
+		iac, se})
+
+	// Expected response:
+	// IAC SB TN3270E DEVICE-TYPE REQUEST devtype [CONNECT termname] IAC SE
+	n, err := conn.Read(buf[:])
+	if err != nil {
+		return termtype, err
+	}
+
+	// At a minimum, with a one-character terminal type name, we expect
+	// 8 bytes
+	if n < 8 {
+		return termtype, ErrTelnetError
+	}
+
+	// We'll check the expected control bytes all in one go...
+	if buf[0] != iac || buf[1] != sb || buf[2] != tn3270e ||
+		buf[3] != tn3270eDeviceType || buf[4] != tn3270eRequest ||
+		buf[n-2] != iac || buf[n-1] != se {
+		return termtype, ErrTelnetError
+	}
+
+	// We may or may not have the "CONNECT termname" portion in the response.
+	// For now, we'll grab the sequence of bytes between the beginning and
+	// ending control characters.
+	response := buf[5 : n-2]
+	var devtype, termname []byte
+	i := bytes.Index(response, []byte{tn3270eConnect})
+	if i == -1 {
+		// Only the device type
+		devtype = response
+	} else {
+		// Make sure there's actually data after the option so we don't panic
+		// tring to access it.
+		if len(response) < i+2 {
+			return termtype, ErrTelnetError
+		}
+		devtype = response[0:i]
+		termname = response[i+1:]
+	}
+	if termname == nil {
+		termname = []byte("go3270")
+	}
+
+	// Accept the device type and terminal name the client sent
+	command := []byte{iac, sb, tn3270e, tn3270eDeviceType, tn3270eIs}
+	command = append(command, devtype...)
+	command = append(command, tn3270eConnect)
+	command = append(command, termname...)
+	command = append(command, iac, se)
+	conn.Write(command)
+
+	// Everything looks good. The terminal type is an ASCII string between all
+	// the control/command bytes.
+	return string(buf[5 : n-2]), nil
+}
+
+func negotiateFunctions3270e(conn net.Conn) error {
+	var buf [100]byte
+
+	n, err := conn.Read(buf[:])
+	if err != nil {
+		return err
+	}
+
+	// Minimum expected request is 7 bytes
+	if n < 7 {
+		return ErrTelnetError
+	}
+
+	// Is this the request we expect?
+	if buf[0] != iac || buf[1] != sb || buf[2] != tn3270e ||
+		buf[3] != tn3270eFunctions || buf[4] != tn3270eRequest ||
+		buf[n-2] != iac || buf[n-1] != se {
+		return ErrTelnetError
+	}
+
+	// If the client requested null options (so the whole request is 7 bytes),
+	// we don't need another round of negotiation.
+	if n == 7 {
+		conn.Write([]byte{
+			iac, sb, tn3270e, tn3270eFunctions, tn3270eIs, iac, se})
+		return nil
+	}
+
+	// Otherwise, send our request for no features and check that the response
+	// agrees.
+	conn.Write([]byte{
+		iac, sb, tn3270e, tn3270eFunctions, tn3270eRequest, iac, se})
+	n, err = conn.Read(buf[:])
+	if err != nil {
+		return err
+	}
+	if n != 7 || buf[0] != iac || buf[1] != sb || buf[2] != tn3270e ||
+		buf[3] != tn3270eFunctions || buf[4] != tn3270eIs ||
+		buf[5] != iac || buf[6] != se {
+		return ErrTelnetError
+	}
+
+	return nil
 }
 
 var modelRegex = regexp.MustCompile(`^IBM-\d{4}-([2-5])`)
@@ -311,29 +526,49 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 	// For IBM-DYNAMIC, we need to discover the alternate screen size with
 	// a structured field query.
 
+	var buf bytes.Buffer
+
 	// First, we perform an ERASE / WRITE ALTERNATE to clear the screen
 	// and put it in alternate screen mode. (EWA, reset WCC, telnet EOR)
-	if _, err := conn.Write([]byte{0x7e, 0xc3, 0xff, 0xef}); err != nil {
+	if internal.TN3270e {
+		buf.Write([]byte{0, 0, 0, 0, 0})
+	}
+	buf.Write([]byte{0x7e, 0xc3, 0xff, 0xef})
+	if _, err := conn.Write(buf.Bytes()); err != nil {
 		return nil, err
 	}
 
 	// Now we need to send the Write Structured Field command (0xf3) with the
 	// "Read Partition - Query" structured field. Note that we're
 	// telnet-escaping the 0xff in the data, but the subfield length is the
-	// *unescaped* length (7).
-	if _, err := conn.Write([]byte{0xf3, 0, 7, 0x01, 0xff, 0xff, 0x02,
-		0xff, 0xef}); err != nil {
+	// *unescaped* length (5).
+	buf.Reset()
+	if internal.TN3270e {
+		buf.Write([]byte{0, 0, 0, 0, 0})
+	}
+	buf.Write([]byte{0xf3, 0, 5, 0x01, 0xff, 0xff, 0x02,
+		0xff, 0xef})
+	if _, err := conn.Write(buf.Bytes()); err != nil {
 		return nil, err
 	}
 
-	// Now... the problem here is that the command we used, Read Partition -
-	// Query, may only work on tn3270e connections. We didn't negotiate
-	// tn3270e, we're just using "classic" tn3270. If the client doesn't do
-	// anything with the command we sent ([cx]3270, PCOMM don't respond; Vista
-	// TN3270 does), we'll allow for a timeout on this read or else we'll
-	// block forever here.
+	// We want a timeout here in case the client doesn't support/respond to
+	// the request.
 	var aid [1]byte
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if internal.TN3270e {
+		var throwaway [5]byte
+		if n, err := conn.Read(throwaway[:]); err != nil {
+			// If it's a timeout, we'll let it flow through and timeout again
+			// for the next read to get handled for real.
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				// do nothing
+			}
+			return nil, err
+		} else if n != 5 {
+			return nil, fmt.Errorf("got %d header bytes, expecting 5", n)
+		}
+	}
 	n, err := conn.Read(aid[:])
 	conn.SetReadDeadline(time.Time{})
 	if err != nil && errors.Is(err, os.ErrDeadlineExceeded) {

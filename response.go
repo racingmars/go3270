@@ -6,7 +6,10 @@ package go3270
 
 import (
 	"bytes"
+	"fmt"
 	"net"
+
+	"github.com/racingmars/go3270/internal"
 )
 
 // Response encapsulates data received from a 3270 client in response to the
@@ -65,13 +68,24 @@ const (
 
 func readResponse(c net.Conn, fm fieldmap, dev DevInfo) (Response, error) {
 	var r Response
+
+	// If in 3270e mode, discard the first 5 header bytes
+	if internal.TN3270e {
+		var throwaway [5]byte
+		if n, err := c.Read(throwaway[:]); err != nil {
+			return r, err
+		} else if n != 5 {
+			return r, fmt.Errorf("got %d header bytes, expecting 5", n)
+		}
+	}
+
 	aid, err := readAID(c)
 	if err != nil {
 		return r, err
 	}
 	r.AID = aid
 
-	// If the use pressed clear, or a PA key we should return now
+	// If the user pressed clear, or a PA key we should return now
 	// TODO: actually, we should consume the 0xffef, but that will
 	// currently get taken care of in our next AID search.
 	if r.AID == AIDClear || r.AID == AIDPA1 || r.AID == AIDPA2 ||
