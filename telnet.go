@@ -320,18 +320,14 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 	// Now we need to send the Write Structured Field command (0xf3) with the
 	// "Read Partition - Query" structured field. Note that we're
 	// telnet-escaping the 0xff in the data, but the subfield length is the
-	// *unescaped* length (7).
-	if _, err := conn.Write([]byte{0xf3, 0, 7, 0x01, 0xff, 0xff, 0x02,
+	// *unescaped* length (5).
+	if _, err := conn.Write([]byte{0xf3, 0, 5, 0x01, 0xff, 0xff, 0x02,
 		0xff, 0xef}); err != nil {
 		return nil, err
 	}
 
-	// Now... the problem here is that the command we used, Read Partition -
-	// Query, may only work on tn3270e connections. We didn't negotiate
-	// tn3270e, we're just using "classic" tn3270. If the client doesn't do
-	// anything with the command we sent ([cx]3270, PCOMM don't respond; Vista
-	// TN3270 does), we'll allow for a timeout on this read or else we'll
-	// block forever here.
+	// We'll use a timeout in case the client doesn't support/reply to our
+	// structured field query.
 	var aid [1]byte
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	n, err := conn.Read(aid[:])
