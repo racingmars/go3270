@@ -28,18 +28,36 @@ Here's [a video introducing the library][introVideo] as well.
 
 [introVideo]: https://www.youtube.com/watch?v=h9XTjup5W5U
 
-A note on code pages
---------------------
+Code page support
+-----------------
 
-After careful consideration, I have decided that the code page we will support for EBCDIC is IBM CP1047.
+By default, go3270 will use the EBCDIC IBM CP 1047 code page. If your clients are set to CP 1047, no changes are necessary.
 
-In suite3270 (e.g. c3270/x3270), the default code page is what it calls "brackets". This is CP37 with the [, ], Ý, and ¨ characters swapped around. This ends up placing all four of those characters in the correct place for 1047 (and thus they will work correctly with go3270 by default). However, the ^ and ¬ characters are swapped relative to CP1047. (Or, more succinctly, you could say the suite3270 "brackets" codepage is CP1047 with the ^ and ¬ characters swapped back to where they are in CP37). If you plan on using the ^ and ¬ characters, run c/x3270 in proper 1047 mode, `c3270 -codepage 1047` or make it your default by setting the `c3270.codePage` resource to `1047` in your `.c3270pro` file, for example.
+You may globally set the go3270 code page by calling the SetCodepage() function during your application initialization (this should be set before you use the library for handling any client connections; this is a global setting, not a per-connection setting). SetCodepage() accepts a Codepage interface, which provides methods to encode Go UTF-8 strings to EBCDIC, and decode EBCDIC byte slices to Go UTF-8 strings.
 
-In Vista TN3270, "United States" is the default code page. This is CP1047 and will map 100% correctly.
+go3270 currently provides functions that return suitable interfaces for:
 
-In IBM PCOMM, CP37 is the default. For correct mapping of [, ], Ý, ¨, ^, and ¬, you must switch the session parameters from "037 United States" to "1047 United States".
+ * CP 37: `Codepage037()`, the "classic."
+ * CP 924: `Codepage924()`, a variation of CP 1047 with the Euro symbol and other changes to bring it in line with ISO 8859-15 (Latin-9).
+ * CP 1047: `Codepage1047()`, the "modern" U.S. EBCDIC code page, which maps the full ISO 8859-1 (Latin-1) character set.
+ * CP 1140: `Codepage1140()`, which is the same as CP 37 except the Euro symbol replaces the ¤ currency sign at position 0x9F.
+ * brackets: `CodepageBrackets()`, which is the default c/x3270 codepage (closest to CP 1047, with with `^` and `¬` swapped back to where they are in CP 37)
 
-Additionally, most characters from the "graphic escape" code page 310 are supported. Correct display on the client will depend on its support of graphic escape and correct characters being available in its font. Use the corresponding Unicode characters in your Go UTF-8 strings and they will be sent as the EBCDIC two-byte sequence of 0x08 followed by the position in code page 310. GE sequences are also processed on incoming field values.
+If there are other standard EBCDIC code pages that you would like support for, let me know.
+
+To configure go3270 to use one of the codepages, you may do something like:
+
+```
+import (
+    "github.com/racingmars/go3270"
+)
+
+func init() {
+    go3270.SetCodepage(go3270.Codepage1047())
+}
+```
+
+Additionally, most characters from the "graphic escape" code page 310 are supported in all of the go3270-provided codepage implementations. Correct display on the client will depend on its support of graphic escape and correct characters being available in its font. Use the corresponding Unicode characters in your Go UTF-8 strings and they will be sent as the EBCDIC two-byte sequence of 0x08 followed by the position in code page 310. GE sequences are also processed on incoming field values.
 
 3270 information
 ----------------
