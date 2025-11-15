@@ -160,7 +160,7 @@ func readFields(c net.Conn, fm fieldmap, cols int) (map[string]string, error) {
 		if eor {
 			// Finish the current field
 			if infield {
-				value := decode(fieldval.Bytes())
+				value := currentCodepage.Decode(fieldval.Bytes())
 				debugf("Field %d: %s\n", fieldpos, value)
 				handleField(fieldpos, value, fm, values)
 			}
@@ -172,7 +172,7 @@ func readFields(c net.Conn, fm fieldmap, cols int) (map[string]string, error) {
 		if b == 0x11 {
 			// Finish the previous field, if necessary
 			if infield {
-				value := decode(fieldval.Bytes())
+				value := currentCodepage.Decode(fieldval.Bytes())
 				debugf("Field %d: %s\n", fieldpos, value)
 				handleField(fieldpos, value, fm, values)
 			}
