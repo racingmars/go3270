@@ -18,6 +18,11 @@ type Codepage interface {
 
 	// Encode converts a UTF-8 string into a slice of EBCDIC bytes.
 	Encode(s string) []byte
+
+	// ID returns the name of this codepage. Usually a numeric string like
+	// "037" or "1047", but could also be a name such as "bracket" if IBM has
+	// not assigned a number to the particular codepage.
+	ID() string
 }
 
 // After careful consideration, I have decided that the default code page we
@@ -41,15 +46,19 @@ type Codepage interface {
 // In IBM PCOMM, CP37 is the default. For correct mapping of [, ], Ý, ¨, ^,
 // and ¬, you must switch the session parameters from "037 United States" to
 // "1047 United States".
-var currentCodepage Codepage = Codepage1047()
+var defaultCodepage Codepage = Codepage1047()
 
 // SetCodepage sets the codepage/character set that go3270 uses. This is a
 // global setting, so if you're expecting clients to be configured to use a
 // character set other than go3270's default, cp1047, you should probably set
 // this during your application initialization and then leave it unchanged
 // after. This is _not_ a per-connection setting.
+//
+// For per-client codepage, set the ScreenOpts.Codepage field in the calls to
+// ShowScreenOpts() or the codepage argument to HandleScreen() and
+// HandleScreenAlt().
 func SetCodepage(cs Codepage) {
-	currentCodepage = cs
+	defaultCodepage = cs
 }
 
 // Internal implementation of the Charset interface we'll use for the codepage
@@ -77,6 +86,8 @@ type codepage struct {
 
 	// Map of Unicode code points to graphic escape EBCDIC bytes.
 	u2ge map[rune]byte
+
+	id string
 }
 
 // Codepage037 returns an interface that implements the IBM CP 037 code page.
@@ -85,6 +96,7 @@ type codepage struct {
 // https://raw.githubusercontent.com/unicode-org/icu-data/refs/heads/main/charset/data/ucm/glibc-IBM037-2.1.2.ucm
 func Codepage037() Codepage {
 	return &codepage{
+		id: "037",
 		e2u: []rune{
 			/*         x0    x1    x2    x3    x4    x5    x6    x7    x8    x9    xA    xB    xC    xD    xE    xF */
 			/* 0x */ 0x00, 0x01, 0x02, 0x03, 0x9C, 0x09, 0x86, 0x7F, 0x97, 0x8D, 0x8E, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
@@ -137,6 +149,7 @@ func Codepage037() Codepage {
 // https://raw.githubusercontent.com/unicode-org/icu-data/refs/heads/main/charset/data/ucm/ibm-924_P100-1998.ucm
 func Codepage924() Codepage {
 	return &codepage{
+		id: "924",
 		e2u: []rune{
 			/*         x0    x1    x2    x3    x4    x5    x6    x7    x8    x9    xA    xB    xC    xD    xE    xF */
 			/* 0x */ 0x00, 0x01, 0x02, 0x03, 0x9C, 0x09, 0x86, 0x7F, 0x97, 0x8D, 0x8E, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
@@ -194,6 +207,7 @@ func Codepage924() Codepage {
 // https://raw.githubusercontent.com/unicode-org/icu-data/refs/heads/main/charset/data/ucm/glibc-IBM1047-2.1.2.ucm
 func Codepage1047() Codepage {
 	return &codepage{
+		id: "1047",
 		e2u: []rune{
 			/*         x0    x1    x2    x3    x4    x5    x6    x7    x8    x9    xA    xB    xC    xD    xE    xF */
 			/* 0x */ 0x00, 0x01, 0x02, 0x03, 0x9C, 0x09, 0x86, 0x7F, 0x97, 0x8D, 0x8E, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
@@ -247,6 +261,7 @@ func Codepage1047() Codepage {
 // https://raw.githubusercontent.com/unicode-org/icu-data/refs/heads/main/charset/data/ucm/ibm-1140_P100-1997.ucm
 func Codepage1140() Codepage {
 	return &codepage{
+		id: "1140",
 		e2u: []rune{
 			/*         x0    x1    x2    x3    x4    x5    x6    x7    x8    x9    xA    xB    xC    xD    xE    xF */
 			/* 0x */ 0x00, 0x01, 0x02, 0x03, 0x9C, 0x09, 0x86, 0x7F, 0x97, 0x8D, 0x8E, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
@@ -295,14 +310,15 @@ func Codepage1140() Codepage {
 	}
 }
 
-// CodepageBrackets returns an interface that implements the "brackets" code
+// CodepageBrackets returns an interface that implements the "bracket" code
 // page as used by c/x3270 by default. I have also seen this referred to as
 // CP037-2.
 //
 // See:
 // https://x3270.miraheze.org/wiki/Why_are_the_square_bracket_characters_displayed_wrong%3F
-func CodepageBrackets() Codepage {
+func CodepageBracket() Codepage {
 	return &codepage{
+		id: "bracket",
 		e2u: []rune{
 			/*         x0    x1    x2    x3    x4    x5    x6    x7    x8    x9    xA    xB    xC    xD    xE    xF */
 			/* 0x */ 0x00, 0x01, 0x02, 0x03, 0x9C, 0x09, 0x86, 0x7F, 0x97, 0x8D, 0x8E, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
@@ -461,4 +477,8 @@ func (cp *codepage) Encode(s string) []byte {
 	}
 
 	return out
+}
+
+func (cp *codepage) ID() string {
+	return cp.id
 }

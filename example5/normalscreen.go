@@ -23,6 +23,9 @@ var normallayout = go3270.Screen{
 	{Row: 4, Col: 0, Content: "Terminal Type  . . ."},
 	{Row: 4, Col: 21, Name: "termtype", Intense: true},
 
+	{Row: 4, Col: 40, Content: "Code page . . ."},
+	{Row: 4, Col: 56, Name: "codepage", Intense: true},
+
 	{Row: 5, Col: 0, Content: "Rows . . . . . . . ."},
 	{Row: 5, Col: 21, Name: "rows", Intense: true},
 	{Row: 5, Col: 28, Content: "(but currently using 24)"},
@@ -46,6 +49,10 @@ func normalscreen(conn net.Conn, devinfo go3270.DevInfo, data any) (
 
 	rows, cols := devinfo.AltDimensions()
 	termtype := devinfo.TerminalType()
+	codepage := "(unknown)"
+	if devinfo.Codepage() != nil {
+		codepage = devinfo.Codepage().ID()
+	}
 
 	// Make a local copy of the screen definition that we can append lines to.
 	screen := make(go3270.Screen, len(normallayout))
@@ -66,6 +73,7 @@ func normalscreen(conn net.Conn, devinfo go3270.DevInfo, data any) (
 
 	fieldValues := map[string]string{
 		"termtype": termtype,
+		"codepage": codepage,
 		"rows":     strconv.Itoa(rows),
 		"cols":     strconv.Itoa(cols),
 	}
@@ -83,7 +91,8 @@ func normalscreen(conn net.Conn, devinfo go3270.DevInfo, data any) (
 		},
 		"errormsg", // name of field to put error messages in
 		1, 1,       // cursor coordinates
-		conn, // network connection
+		conn,               // network connection
+		devinfo.Codepage(), // client code page
 	)
 	if err != nil {
 		return nil, nil, err

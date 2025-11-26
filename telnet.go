@@ -33,6 +33,14 @@ type DevInfo interface {
 	// from AltDimensions().
 	TerminalType() string
 
+	// Codepage is the Codepage interface that implements the EBCDIC
+	// translation for the detected code page for the terminal, if supported.
+	// This may be nil if the client code page is unknown. Whenever calling
+	// the screen functions, always pass the value returned by this Codepage()
+	// function in the ScreenOpts (nil is allowed to default to the global
+	// default codepage).
+	Codepage() Codepage
+
 	// Private version of AltDimensions() so callers can't fake us out; only
 	// real implementations returned by NegotiateTelnet() will work.
 	altDimensions() (rows, cols int)
@@ -284,32 +292,42 @@ func getTerminalType(conn net.Conn) (string, error) {
 var modelRegex = regexp.MustCompile(`^IBM-\d{4}-([2-5])`)
 
 func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
+	var rows, cols, cpid int
+	var codepage Codepage
+	var isx3270 bool
+
 	// tn3270e restricts to a small list of valid models, but since we're
 	// not doing tn3270e, we are seeing a variety of model numbers. We'll
 	// generically handle anything claiming to be a -2, -3, -4, or -5 type.
+	//
+	// We'll default to known terminal sizes in case we don't get the
+	// structured field query response later.
 	modelresult := modelRegex.FindStringSubmatch(termtype)
 	if len(modelresult) == 2 {
 		switch modelresult[1] {
 		case "2":
-			return &deviceInfo{24, 80, termtype}, nil
+			rows = 24
+			cols = 80
 		case "3":
-			return &deviceInfo{32, 80, termtype}, nil
+			rows = 32
+			cols = 80
 		case "4":
-			return &deviceInfo{43, 80, termtype}, nil
+			rows = 43
+			cols = 80
 		case "5":
-			return &deviceInfo{27, 132, termtype}, nil
+			rows = 27
+			cols = 132
 		}
+	} else if termtype != "IBM-DYNAMIC" {
+		// If it's not a fixed-size type, it should be IBM-DYNAMIC. If it
+		// isn't, we don't know how to deal with it. We'll just fall back on a
+		// simple 24x80 assumption.
+		rows = 24
+		cols = 80
+		termtype = "unknown (" + termtype + ")"
 	}
 
-	// If it's not a fixed-size type, it should be IBM-DYNAMIC. If it isn't,
-	// we don't know how to deal with it. We'll just fall back on a simple
-	// 24x80 assumption.
-	if termtype != "IBM-DYNAMIC" {
-		return &deviceInfo{24, 80, "unknown (" + termtype + ")"}, nil
-	}
-
-	// For IBM-DYNAMIC, we need to discover the alternate screen size with
-	// a structured field query.
+	// Now we'll discover the terminal size and character set.
 
 	// First, we perform an ERASE / WRITE ALTERNATE to clear the screen
 	// and put it in alternate screen mode. (EWA, reset WCC, telnet EOR)
@@ -320,7 +338,8 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 	// Now we need to send the Write Structured Field command (0xf3) with the
 	// "Read Partition - Query" structured field. Note that we're
 	// telnet-escaping the 0xff in the data, but the subfield length is the
-	// *unescaped* length (5).
+	// *unescaped* length, including the 2 length bytes but excluding the
+	// telnet EOR (5).
 	if _, err := conn.Write([]byte{0xf3, 0, 5, 0x01, 0xff, 0xff, 0x02,
 		0xff, 0xef}); err != nil {
 		return nil, err
@@ -334,9 +353,9 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 	conn.SetReadDeadline(time.Time{})
 	if err != nil && errors.Is(err, os.ErrDeadlineExceeded) {
 		// Timeout. In this case, we'll assume it's because the client didn't
-		// reply to our query command. In that case, we'll fall back to
-		// treating the terminal as a 24x80.
-		return &deviceInfo{24, 80, termtype}, nil
+		// reply to our query command. In that case, we'll return whatever
+		// we're already assuming.
+		return &deviceInfo{24, 80, termtype, nil}, nil
 	} else if err != nil {
 		return nil, err
 	}
@@ -344,11 +363,10 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 		return nil, ErrTelnetError
 	}
 
-	var rows, cols int
-	// There are an arbitrary number of query reply structured fields. We
-	// are only interested in the "Usable Area" SFID=0x81 QCODE=0x81 field,
-	// so we'll just consume any others. Consume all data until the EOR is
-	// received.
+	// There are an arbitrary number of query reply structured fields. We are
+	// only interested in the "Usable Area" SFID=0x81 QCODE=0x81 field and
+	// "Character Sets" QCODE=0x85 field so we'll just consume any others.
+	// Consume all data until the EOR is received.
 	for {
 		// Two bytes are big-endian length.
 		buf, err := telnetReadN(conn, 2)
@@ -371,42 +389,125 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 			return nil, ErrTelnetError
 		}
 
-		// Note that because length isn't at the beginning, offsets in buf
-		// are 2 less than in the 3270 datastream documentation.
-
-		if !(buf[0] == 0x81 && buf[1] == 0x81) {
-			// Not 'Usable Area' query reply
+		// Note that because length isn't at the beginning, offsets in buf are
+		// 2 less than in the 3270 data stream documentation.
+		if buf[0] == 0x81 && buf[1] == 0x81 {
+			// Usable Area
+			rows, cols, err = getUsableArea(buf)
+			if err != nil {
+				return nil, err
+			}
+		} else if buf[0] == 0x81 && buf[1] == 0x85 {
+			// Character Sets
+			cpid = getCodepageID(buf)
+		} else if buf[0] == 0x81 && buf[1] == 0xA1 {
+			// RPQ Names. We use this  to determine if the client is x3270
+			// family.
+			isx3270 = getRPQNames(buf)
+		} else {
+			// Not a field we're interested in
 			continue
 		}
-
-		// A valid Usable Area reply will always include at least 18 (20 with
-		// length) bytes.
-		if l < 18 {
-			return nil, ErrTelnetError
-		}
-
-		// big-endian two byte values
-		cols = int(buf[4])<<8 + int(buf[5])
-		rows = int(buf[6])<<8 + int(buf[7])
 	}
+
+	switch cpid {
+	case 37:
+		// If x3270 family, assume that this is really the default "bracket"
+		// codepage, which reports as 37, not true CP37.
+		if isx3270 {
+			codepage = CodepageBracket()
+		} else {
+			codepage = Codepage037()
+		}
+	case 924:
+		codepage = Codepage924()
+	case 1047:
+		codepage = Codepage1047()
+	case 1140:
+		codepage = Codepage1140()
+	default:
+		// nil codepage will be accepted in ScreenOpts to default to the
+		// global default codepage.
+		codepage = nil
+	}
+
+	return &deviceInfo{rows, cols, termtype, codepage}, nil
+}
+
+// getUsableArea processes the "Query Reply (Usable Area)" response to return
+// the rows and columns count of the terminal. The byte slice passed in to buf
+// must begin with {0x81, 0x81}.
+func getUsableArea(buf []byte) (rows, cols int, err error) {
+	// A valid Usable Area reply will always include at least 18 (20 with
+	// length) bytes.
+	if len(buf) < 18 || buf[0] != 0x81 || buf[1] != 0x81 {
+		return 0, 0, ErrTelnetError
+	}
+
+	// big-endian two byte values
+	cols = int(buf[4])<<8 + int(buf[5])
+	rows = int(buf[6])<<8 + int(buf[7])
 
 	if rows == 0 || cols == 0 {
-		// We got an IBM-DYNAMIC device type, but it didn't include a
-		// Usable Area query response.
-		return nil, ErrUnknownTerminal
+		// Got a Usable Area response but the values are 0?
+		return 0, 0, ErrUnknownTerminal
 	}
 
-	// We support 12- and 14-bit addressing. Using 16-bit addressing would
-	// require a mode change and the current API design doesn't support
-	// tracking the state necessary for that.
+	// We support 12- and 14-bit addressing. Using 16-bit addressing
+	// would require a mode change and the current API design doesn't
+	// support tracking the state necessary for that.
 	//
-	// We'll limit the reported screen size to what fits in 14-bit addressing
-	// by removing rows if necessary.
+	// We'll limit the reported screen size to what fits in 14-bit
+	// addressing by removing rows if necessary.
 	for rows*cols >= 1<<14 {
 		rows--
 	}
 
-	return &deviceInfo{rows, cols, termtype}, nil
+	return rows, cols, nil
+}
+
+// getCodepageID processes the "Query Reply (Character Sets)" response to
+// return the integer code page number if present. If unable, returns 0. The
+// byte slice passed in to buf must begin with {0x81, 0x85}.
+func getCodepageID(buf []byte) int {
+	// Initial validity check.
+	if len(buf) < 11 || buf[0] != 0x81 || buf[1] != 0x85 {
+		return 0
+	}
+
+	// If the GF bit is not set, no point in continuing.
+	if buf[2]&(1<<1) != 1<<1 {
+		return 0
+	}
+
+	// Descriptor length -- and do we have at least one descriptor?
+	dl := int(buf[10])
+	if len(buf) < 11+dl {
+		return 0
+	}
+
+	// No matter how long the descriptor is, the code page will 2-byte big
+	// endian integer in the last two bytes.
+	cpid := int(buf[11+dl-2])<<8 + int(buf[11+dl-1])
+
+	return cpid
+}
+
+// getRPGNames checks the "Query Reply (RPQ NAMES)" response to see if the
+// client is in the x3270 family. The byte slice passed in to buf must begin
+// with {0x81, 0xA1}.
+func getRPQNames(buf []byte) bool {
+	if len(buf) < 16 {
+		return false
+	}
+
+	// "x3270" in EBCDIC
+	if buf[11] == 0xa7 && buf[12] == 0xf3 && buf[13] == 0xf2 &&
+		buf[14] == 0xf7 && buf[15] == 0xf0 {
+		return true
+	}
+
+	return false
 }
 
 // UnNegotiateTelnet will naively (e.g. not checking client responses) attempt
@@ -543,6 +644,7 @@ func telnetReadN(conn net.Conn, n int) ([]byte, error) {
 type deviceInfo struct {
 	rows, cols int
 	termtype   string
+	codepage   Codepage
 }
 
 func (d *deviceInfo) AltDimensions() (rows, cols int) {
@@ -555,4 +657,8 @@ func (d *deviceInfo) TerminalType() string {
 
 func (d *deviceInfo) altDimensions() (rows, cols int) {
 	return d.rows, d.cols
+}
+
+func (d *deviceInfo) Codepage() Codepage {
+	return d.codepage
 }

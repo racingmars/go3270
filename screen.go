@@ -116,6 +116,17 @@ type ScreenOpts struct {
 	// dimensions of the DevInfo.AltDimensions() values.
 	AltScreen DevInfo
 
+	// Codepage is the Codepage implementation to use when sending text to the
+	// client and translating incoming field text from the client. Typically
+	// you should pass in the return value from DevInfo.Codepage() each time
+	// to get the correct codepage that was detected when the client
+	// connected. If nil, the global default code page (default 1047, but
+	// changed with the SetCodepage() function) will be used. NOTE: providing
+	// a DevInfo to ScreenOpts.AltScreen does _not_ automatically set this
+	// value, you must set it explicitly on every call that accepts
+	// ScreenOpts.
+	Codepage Codepage
+
 	// NoResponse will draw the screen and immediately return, without
 	// waiting for any input data from the remote client.
 	NoResponse bool
@@ -188,7 +199,7 @@ func ShowScreenOpts(screen Screen,
 	var resp Response
 
 	fm, err := showScreenInternal(screen, values, opts.CursorRow,
-		opts.CursorCol, conn, !opts.NoClear, opts.AltScreen)
+		opts.CursorCol, conn, !opts.NoClear, opts.AltScreen, opts.Codepage)
 	if err != nil {
 		return resp, err
 	}
@@ -201,7 +212,7 @@ func ShowScreenOpts(screen Screen,
 	}
 
 	if !opts.NoResponse {
-		resp, err = readResponse(conn, fm, opts.AltScreen)
+		resp, err = readResponse(conn, fm, opts.AltScreen, opts.Codepage)
 		if err != nil {
 			return resp, err
 		}
@@ -222,6 +233,9 @@ func ShowScreenOpts(screen Screen,
 }
 
 // Deprecated: use ShowScreenOpts with default/empty ScreenOpts.
+//
+// NOTE: this deprecated function is NOT codepage-aware. The global code
+// page set by SetCodepage will always be used.
 func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
 	conn net.Conn) (Response, error) {
 
@@ -230,6 +244,9 @@ func ShowScreen(screen Screen, values map[string]string, crow, ccol int,
 }
 
 // Deprecated: use ShowScreenOpts with ScreenOpts.NoResponse = true.
+//
+// NOTE: this deprecated function is NOT codepage-aware. The global code
+// page set by SetCodepage will always be used.
 func ShowScreenNoResponse(screen Screen, values map[string]string,
 	crow, ccol int, conn net.Conn) error {
 
@@ -239,7 +256,13 @@ func ShowScreenNoResponse(screen Screen, values map[string]string,
 }
 
 func showScreenInternal(screen Screen, values map[string]string,
-	crow, ccol int, conn net.Conn, clear bool, dev DevInfo) (fieldmap, error) {
+	crow, ccol int, conn net.Conn, clear bool, dev DevInfo,
+	cp Codepage) (fieldmap, error) {
+
+	// Provide default Codepage implementation
+	if cp == nil {
+		cp = defaultCodepage
+	}
 
 	rows, cols := 24, 80
 	if dev != nil {
@@ -286,7 +309,7 @@ func showScreenInternal(screen Screen, values map[string]string,
 			}
 		}
 		if content != "" {
-			b.Write(currentCodepage.Encode(content))
+			b.Write(cp.Encode(content))
 		}
 
 		// If a writable field, add it to the field map. We add 1 to bufaddr

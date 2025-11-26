@@ -79,7 +79,7 @@ type mainmenuData struct {
 
 // mainmenu transaction accepts a mainmenuData struct as the data if the
 // option field or error message should be populated.
-func (sess *session) mainmenu(conn net.Conn, _ go3270.DevInfo, data any) (
+func (sess *session) mainmenu(conn net.Conn, devinfo go3270.DevInfo, data any) (
 	go3270.Tx, any, error) {
 
 	fieldValues := make(map[string]string)
@@ -107,7 +107,8 @@ func (sess *session) mainmenu(conn net.Conn, _ go3270.DevInfo, data any) (
 		},
 		mainmenuError, // name of field to put error messages in
 		1, 13,         // cursor coordinates
-		conn)
+		conn,
+		devinfo.Codepage())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -183,7 +184,7 @@ var exampleScreen = go3270.Screen{
 // exampleFeature is a transaction that will act as a placeholder for real
 // application functionality. It accepts a string in the data which will
 // be displayed on the panel.
-func (sess *session) exampleFeature(conn net.Conn, _ go3270.DevInfo,
+func (sess *session) exampleFeature(conn net.Conn, devinfo go3270.DevInfo,
 	data any) (go3270.Tx, any, error) {
 
 	fieldValues := make(map[string]string)
@@ -210,7 +211,8 @@ func (sess *session) exampleFeature(conn net.Conn, _ go3270.DevInfo,
 		},
 		mainmenuError, // name of field to put error messages in
 		23, 79,        // cursor coordinates
-		conn)
+		conn,
+		devinfo.Codepage())
 	if err != nil {
 		return nil, nil, err
 	}

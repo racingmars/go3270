@@ -49,7 +49,8 @@ func handle(conn net.Conn) {
 	defer conn.Close()
 
 	// Always begin new connection by negotiating the telnet options
-	if _, err := go3270.NegotiateTelnet(conn); err != nil {
+	devinfo, err := go3270.NegotiateTelnet(conn)
+	if err != nil {
 		fmt.Println(err)
 		return
 	}
@@ -67,7 +68,11 @@ func handle(conn net.Conn) {
 			for {
 				screen[3].Content = time.Now().UTC().Format("15:04:05")
 				response, err := go3270.ShowScreenOpts(screen, nil, conn,
-					go3270.ScreenOpts{CursorRow: 23, CursorCol: 0})
+					go3270.ScreenOpts{
+						CursorRow: 23,
+						CursorCol: 0,
+						Codepage:  devinfo.Codepage(),
+					})
 				if err != nil {
 					// User dropped connection, maybe? We'll end things.
 					done <- true
@@ -98,7 +103,11 @@ func handle(conn net.Conn) {
 			// Send the updated time, without clearing the screen
 			refresh[0].Content = time.Now().UTC().Format("15:04:05")
 			_, err := go3270.ShowScreenOpts(refresh, nil, conn,
-				go3270.ScreenOpts{NoClear: true, NoResponse: true})
+				go3270.ScreenOpts{
+					NoClear:    true,
+					NoResponse: true,
+					Codepage:   devinfo.Codepage(),
+				})
 			if err != nil {
 				// Bail out
 				return

@@ -63,7 +63,9 @@ const (
 	aidQueryResponse AID = 0x88
 )
 
-func readResponse(c net.Conn, fm fieldmap, dev DevInfo) (Response, error) {
+func readResponse(c net.Conn, fm fieldmap, dev DevInfo,
+	cp Codepage) (Response, error) {
+
 	var r Response
 	aid, err := readAID(c)
 	if err != nil {
@@ -92,7 +94,7 @@ func readResponse(c net.Conn, fm fieldmap, dev DevInfo) (Response, error) {
 	r.Row = row
 
 	var fieldValues map[string]string
-	if fieldValues, err = readFields(c, fm, cols); err != nil {
+	if fieldValues, err = readFields(c, fm, cols, cp); err != nil {
 		return r, err
 	}
 
@@ -142,11 +144,18 @@ func readPosition(c net.Conn, cols int) (row, col, addr int, err error) {
 	return row, col, addr, nil
 }
 
-func readFields(c net.Conn, fm fieldmap, cols int) (map[string]string, error) {
+func readFields(c net.Conn, fm fieldmap, cols int,
+	cp Codepage) (map[string]string, error) {
+
 	var infield bool
 	var fieldpos int
 	var fieldval bytes.Buffer
 	var values = make(map[string]string)
+
+	// Provide default codepage
+	if cp == nil {
+		cp = defaultCodepage
+	}
 
 	// consume bytes until we get 0xffef
 	for {
@@ -160,7 +169,7 @@ func readFields(c net.Conn, fm fieldmap, cols int) (map[string]string, error) {
 		if eor {
 			// Finish the current field
 			if infield {
-				value := currentCodepage.Decode(fieldval.Bytes())
+				value := cp.Decode(fieldval.Bytes())
 				debugf("Field %d: %s\n", fieldpos, value)
 				handleField(fieldpos, value, fm, values)
 			}
@@ -172,7 +181,7 @@ func readFields(c net.Conn, fm fieldmap, cols int) (map[string]string, error) {
 		if b == 0x11 {
 			// Finish the previous field, if necessary
 			if infield {
-				value := currentCodepage.Decode(fieldval.Bytes())
+				value := cp.Decode(fieldval.Bytes())
 				debugf("Field %d: %s\n", fieldpos, value)
 				handleField(fieldpos, value, fm, values)
 			}

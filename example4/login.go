@@ -58,7 +58,7 @@ var loginScreenRules = go3270.Rules{
 
 // login transaction accepts a string value in data if the login screen
 // should be initialized with an error message.
-func (sess *session) login(conn net.Conn, _ go3270.DevInfo,
+func (sess *session) login(conn net.Conn, devinfo go3270.DevInfo,
 	data any) (go3270.Tx, any, error) {
 
 	fieldValues := make(map[string]string)
@@ -81,7 +81,8 @@ func (sess *session) login(conn net.Conn, _ go3270.DevInfo,
 			go3270.AIDClear},
 		loginErr, // name of field to put error messages in
 		4, 16,    // cursor coordinates
-		conn)
+		conn,
+		devinfo.Codepage())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -170,7 +171,7 @@ type newuserData struct {
 	errmsg   string
 }
 
-func (sess *session) newuser(conn net.Conn, _ go3270.DevInfo, data any) (
+func (sess *session) newuser(conn net.Conn, devinfo go3270.DevInfo, data any) (
 	go3270.Tx, any, error) {
 
 	fieldValues := make(map[string]string)
@@ -195,7 +196,8 @@ func (sess *session) newuser(conn net.Conn, _ go3270.DevInfo, data any) (
 		},
 		loginErr, // name of field to put error messages in
 		4, 16,    // cursor coordinates
-		conn)
+		conn,
+		devinfo.Codepage())
 	if err != nil {
 		return nil, nil, err
 	}

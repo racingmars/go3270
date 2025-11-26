@@ -7,7 +7,6 @@ package main
 import (
 	"fmt"
 	"net"
-	"os"
 	"strings"
 	"time"
 
@@ -15,8 +14,8 @@ import (
 )
 
 func init() {
-	// put the go3270 library in debug mode
-	go3270.Debug = os.Stderr
+	// put the go3270 library in debug mode:
+	// go3270.Debug = os.Stderr
 }
 
 // A Screen is an array of go3270.Field structs. We will build two screens,
@@ -41,6 +40,9 @@ var screen1 = go3270.Screen{
 	{Row: 8, Col: 6, Intense: true, Content: "enter"},
 	{Row: 8, Col: 12, Content: "to submit your name."},
 	{Row: 10, Col: 0, Intense: true, Color: go3270.Red, Name: "errormsg"}, // a blank field for error messages
+	{Row: 14, Col: 0, Content: "Detected code page:"},
+	{Row: 14, Col: 20, Name: "codepage"},
+	{Row: 15, Col: 0, Content: "The following should be left and right square brackets: [ ]"},
 	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
 
@@ -91,14 +93,21 @@ func handle(conn net.Conn) {
 	defer conn.Close()
 
 	// Always begin new connection by negotiating the telnet options
-	if _, err := go3270.NegotiateTelnet(conn); err != nil {
+	devinfo, err := go3270.NegotiateTelnet(conn)
+	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		return
 	}
 
 	fieldValues := make(map[string]string)
+
+	if devinfo.Codepage() == nil {
+		fieldValues["codepage"] = "(unknown)"
+	} else {
+		fieldValues["codepage"] = devinfo.Codepage().ID()
+	}
+
 	var response go3270.Response
-	var err error
 
 	// We will loop forever until the user quits with PF3
 mainLoop:
@@ -111,11 +120,16 @@ mainLoop:
 			fieldValues["password"] = ""
 
 			// Show the first screen, and wait to get a client response. Place
-			// the cursor at the beginning of the first input field.
-			// We're passing in the fieldValues map to carry values over from
-			// the previous submission. We could pass nil, instead, if always want
+			// the cursor at the beginning of the first input field. We're
+			// passing in the fieldValues map to carry values over from the
+			// previous submission. We could pass nil, instead, if always want
 			// the fields to start out blank.
-			response, err = go3270.ShowScreen(screen1, fieldValues, 4, 20, conn)
+			response, err = go3270.ShowScreenOpts(screen1, fieldValues, conn,
+				go3270.ScreenOpts{
+					Codepage:  devinfo.Codepage(),
+					CursorRow: 4,
+					CursorCol: 20,
+				})
 			if err != nil {
 				fmt.Println(err)
 				return
@@ -123,7 +137,11 @@ mainLoop:
 
 			// If the user pressed PF3, exit
 			if response.AID == go3270.AIDPF3 {
-				go3270.ShowScreenNoResponse(goodbyeScreen, nil, 0, 0, conn)
+				go3270.ShowScreenOpts(goodbyeScreen, nil, conn,
+					go3270.ScreenOpts{
+						Codepage:   devinfo.Codepage(),
+						NoResponse: true,
+					})
 				time.Sleep(2 * time.Second)
 				break mainLoop
 			}
@@ -137,7 +155,8 @@ mainLoop:
 			fieldValues = response.Values
 			if strings.TrimSpace(fieldValues["fname"]) == "" &&
 				strings.TrimSpace(fieldValues["lname"]) == "" {
-				fieldValues["errormsg"] = "First and Last Name fields are required."
+				fieldValues["errormsg"] =
+					"First and Last Name fields are required."
 				continue screen1Loop
 			}
 			if strings.TrimSpace(fieldValues["fname"]) == "" {
@@ -163,12 +182,14 @@ mainLoop:
 		if passwordLength == 1 {
 			passwordPlural = ""
 		}
-		fieldValues["passwordOutput"] = fmt.Sprintf("Your password was %d character%s long",
+		fieldValues["passwordOutput"] = fmt.Sprintf(
+			"Your password was %d character%s long",
 			passwordLength, passwordPlural)
 		fieldValues["position"] = fmt.Sprintf(
 			"When you pressed enter the cursor was at row %d column %d.",
 			response.Row+1, response.Col+1)
-		response, err := go3270.ShowScreen(screen2, fieldValues, 0, 0, conn)
+		response, err := go3270.ShowScreenOpts(screen2, fieldValues, conn,
+			go3270.ScreenOpts{Codepage: devinfo.Codepage()})
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -176,7 +197,11 @@ mainLoop:
 
 		// If the user pressed PF3, exit
 		if response.AID == go3270.AIDPF3 {
-			go3270.ShowScreenNoResponse(goodbyeScreen, nil, 0, 0, conn)
+			go3270.ShowScreenOpts(goodbyeScreen, nil, conn,
+				go3270.ScreenOpts{
+					Codepage:   devinfo.Codepage(),
+					NoResponse: true,
+				})
 			time.Sleep(2 * time.Second)
 			break
 		}

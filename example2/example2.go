@@ -7,15 +7,14 @@ package main
 import (
 	"fmt"
 	"net"
-	"os"
 	"strings"
 
 	"github.com/racingmars/go3270"
 )
 
 func init() {
-	// put the go3270 library in debug mode
-	go3270.Debug = os.Stderr
+	// put the go3270 library in debug mode:
+	// go3270.Debug = os.Stderr
 }
 
 // A Screen is an array of go3270.Field structs. We will build two screens,
@@ -90,7 +89,8 @@ func handle(conn net.Conn) {
 	defer conn.Close()
 
 	// Always begin new connection by negotiating the telnet options
-	if _, err := go3270.NegotiateTelnet(conn); err != nil {
+	devinfo, err := go3270.NegotiateTelnet(conn)
+	if err != nil {
 		fmt.Println(err)
 		return
 	}
@@ -109,7 +109,9 @@ func handle(conn net.Conn) {
 			[]go3270.AID{go3270.AIDPF3},   // keys that are "exit" keys
 			"errormsg",                    // the field to write error message into
 			4, 20,                         // the row and column to place the cursor
-			conn)
+			conn,               // network connection to client
+			devinfo.Codepage(), // Client code page
+		)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -128,7 +130,8 @@ func handle(conn net.Conn) {
 		if passwordLength == 1 {
 			passwordPlural = ""
 		}
-		fieldValues["passwordOutput"] = fmt.Sprintf("Your password was %d character%s long",
+		fieldValues["passwordOutput"] = fmt.Sprintf(
+			"Your password was %d character%s long",
 			passwordLength, passwordPlural)
 
 		response, err = go3270.HandleScreen(
@@ -139,7 +142,7 @@ func handle(conn net.Conn) {
 			[]go3270.AID{go3270.AIDPF3},   // keys that are "exit" keys
 			"errormsg",                    // the field to write error message into
 			0, 0,                          // the row and column to place the cursor
-			conn)
+			conn, devinfo.Codepage())
 		if err != nil {
 			fmt.Println(err)
 			return

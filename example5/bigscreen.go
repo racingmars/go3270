@@ -22,6 +22,9 @@ var biglayout = go3270.Screen{
 	{Row: 4, Col: 0, Content: "Terminal Type  . . ."},
 	{Row: 4, Col: 21, Name: "termtype", Intense: true},
 
+	{Row: 4, Col: 40, Content: "Code page . . ."},
+	{Row: 4, Col: 56, Name: "codepage", Intense: true},
+
 	{Row: 5, Col: 0, Content: "Rows . . . . . . . ."},
 	{Row: 5, Col: 21, Name: "rows", Intense: true},
 
@@ -43,6 +46,10 @@ func bigscreen(conn net.Conn, devinfo go3270.DevInfo, data any) (
 
 	rows, cols := devinfo.AltDimensions()
 	termtype := devinfo.TerminalType()
+	codepage := "(unknown)"
+	if devinfo.Codepage() != nil {
+		codepage = devinfo.Codepage().ID()
+	}
 
 	// Make a local copy of the screen definition that we can append lines to.
 	screen := make(go3270.Screen, len(biglayout))
@@ -79,6 +86,7 @@ func bigscreen(conn net.Conn, devinfo go3270.DevInfo, data any) (
 
 	fieldValues := map[string]string{
 		"termtype": termtype,
+		"codepage": codepage,
 		"rows":     strconv.Itoa(rows),
 		"cols":     strconv.Itoa(cols),
 	}
@@ -100,8 +108,9 @@ func bigscreen(conn net.Conn, devinfo go3270.DevInfo, data any) (
 		},
 		"errormsg", // name of field to put error messages in
 		rows-1, 18, // cursor coordinates
-		conn,    // network connection
-		devinfo, // device info for alternate screen size support
+		conn,               // network connection
+		devinfo,            // device info for alternate screen size support
+		devinfo.Codepage(), // client code page
 	)
 	if err != nil {
 		return nil, nil, err

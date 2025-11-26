@@ -81,6 +81,13 @@ type FieldRules struct {
 //     user submission.
 //   - crow and ccol are the initial cursor position.
 //   - conn is the network connection to the 3270 client.
+//   - codepage is an optional argument (implemented this way as a varargs
+//     argument as a hack to add this feature without breaking API backward
+//     compatability) for the codepage to use. Typically you should pass in the
+//     return value from DevInfo.Codepage() each time to get the correct
+//     codepage that was detected when the client connected. If nil, the
+//     global default code page (default 1047, but changed with the
+//     SetCodepage() function) will be used.
 //
 // HandleScreen will return when the user: 1) presses a key in pfkeys AND all
 // fields pass validation, OR 2) the user presses a key in exitkeys. In all
@@ -90,9 +97,9 @@ type FieldRules struct {
 // For alternate screen support (larger than 24x80), use HandleScreenAlt().
 func HandleScreen(screen Screen, rules Rules, values map[string]string,
 	pfkeys, exitkeys []AID, errorField string, crow, ccol int,
-	conn net.Conn) (Response, error) {
+	conn net.Conn, codepage ...Codepage) (Response, error) {
 	return HandleScreenAlt(screen, rules, values, pfkeys, exitkeys, errorField,
-		crow, ccol, conn, nil)
+		crow, ccol, conn, nil, codepage...)
 }
 
 // HandleScreenAlt is identical to HandleScreen, but writes to the "alternate"
@@ -102,7 +109,12 @@ func HandleScreen(screen Screen, rules Rules, values map[string]string,
 // terminals to the default 24x80 mode.
 func HandleScreenAlt(screen Screen, rules Rules, values map[string]string,
 	pfkeys, exitkeys []AID, errorField string, crow, ccol int,
-	conn net.Conn, dev DevInfo) (Response, error) {
+	conn net.Conn, dev DevInfo, codepage ...Codepage) (Response, error) {
+
+	var cp Codepage
+	if len(codepage) > 0 {
+		cp = codepage[0]
+	}
 
 	// Save the original field values for any named fields to support
 	// the MustChange rule. Also build a map of named fields.
@@ -142,7 +154,8 @@ mainloop:
 		}
 
 		resp, err := ShowScreenOpts(screen, myValues, conn,
-			ScreenOpts{CursorRow: crow, CursorCol: ccol, AltScreen: dev})
+			ScreenOpts{CursorRow: crow, CursorCol: ccol, AltScreen: dev,
+				Codepage: cp})
 		if err != nil {
 			return resp, err
 		}
@@ -154,8 +167,8 @@ mainloop:
 
 		// If we got an unexpected key, set error message and restart loop
 		if !aidInArray(resp.AID, pfkeys) {
-			if !(resp.AID == AIDClear || resp.AID == AIDPA1 || resp.AID == AIDPA2 ||
-				resp.AID == AIDPA3) {
+			if !(resp.AID == AIDClear || resp.AID == AIDPA1 ||
+				resp.AID == AIDPA2 || resp.AID == AIDPA3) {
 				myValues = mergeFieldValues(myValues, resp.Values)
 			}
 			myValues[errorField] = fmt.Sprintf("%s: unknown key",
@@ -179,12 +192,15 @@ mainloop:
 			if _, ok := myValues[field]; !ok {
 				continue
 			}
-			if rules[field].MustChange && myValues[field] == origValues[field] {
+			if rules[field].MustChange &&
+				myValues[field] == origValues[field] {
 				myValues[errorField] = rules[field].ErrorText
 				continue mainloop
 			}
-			if rules[field].Validator != nil && !rules[field].Validator(myValues[field]) {
-				myValues[errorField] = fmt.Sprintf("Value for %s is not valid", field)
+			if rules[field].Validator != nil &&
+				!rules[field].Validator(myValues[field]) {
+				myValues[errorField] = fmt.Sprintf(
+					"Value for %s is not valid", field)
 				continue mainloop
 			}
 		}

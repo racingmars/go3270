@@ -31,9 +31,13 @@ Here's [a video introducing the library][introVideo] as well.
 Code page support
 -----------------
 
-By default, go3270 will use the EBCDIC IBM CP 1047 code page. If your clients are set to CP 1047, no changes are necessary.
+When clients connect, the `NegotiateTelnet()` function returns an implementation of the `DevInfo` interface. That interface has a `DevInfo.Codepage()` method, which returns an implementation of the `Codepage` interface for the detected client code page if known and supported (`nil` otherwise). The `ScreenOpts` structure you provide to the `ShowScreenOpts()` function has a `Codepage` field, which is where you provide `DevInfo.Codepage()` to ensure the UTF-8–EBCDIC translation is correct for the particular client. If `ScreenOpts.Codepage` is `nil` (either because you don't set it, or if `DevInfo.Codepage()` returns `nil`), then go3270 will use its global default code page for that interaction with the client. The global default is the CP1047 code page.
 
-You may globally set the go3270 code page by calling the SetCodepage() function during your application initialization (this should be set before you use the library for handling any client connections; this is a global setting, not a per-connection setting). SetCodepage() accepts a Codepage interface, which provides methods to encode Go UTF-8 strings to EBCDIC, and decode EBCDIC byte slices to Go UTF-8 strings.
+Automatic code page detection support code pages 37, 924, 1047, 1140, and the x3270 "bracket" code page. Note that x3270 does not report a different code page ID between CP37 and "bracket". Since "bracket" is the default code page for x3270, go3270 will assume that if the client is in the x3270 family and the codepage is 37, "bracket" is the correct code page to use.
+
+All of the examples under this repository demonstrate the correct handling of code pages -- the `DevInfo` is remembered from the telnet negotiation, and `DevInfo.Codepage()` is passed to all screen send and receive calls.
+
+You may change the global code page default by calling the SetCodepage() function during your application initialization (this should be set before you use the library for handling any client connections; this is a global setting, not a per-connection setting). SetCodepage() accepts a Codepage interface, which provides methods to encode Go UTF-8 strings to EBCDIC, and decode EBCDIC byte slices to Go UTF-8 strings.
 
 go3270 currently provides functions that return suitable interfaces for:
 
@@ -41,11 +45,11 @@ go3270 currently provides functions that return suitable interfaces for:
  * CP 924: `Codepage924()`, a variation of CP 1047 with the Euro symbol and other changes to bring it in line with ISO 8859-15 (Latin-9).
  * CP 1047: `Codepage1047()`, the "modern" U.S. EBCDIC code page, which maps the full ISO 8859-1 (Latin-1) character set.
  * CP 1140: `Codepage1140()`, which is the same as CP 37 except the Euro symbol replaces the ¤ currency sign at position 0x9F.
- * brackets: `CodepageBrackets()`, which is the default c/x3270 codepage (closest to CP 1047, with with `^` and `¬` swapped back to where they are in CP 37)
+ * bracket: `CodepageBracket()`, which is the default c/x3270 codepage (closest to CP 1047, with with `^` and `¬` swapped back to where they are in CP 37)
 
 If there are other standard EBCDIC code pages that you would like support for, let me know.
 
-To configure go3270 to use one of the codepages, you may do something like:
+To configure go3270 to use one of the codepages by default, you may do something like:
 
 ```
 import (
@@ -56,6 +60,8 @@ func init() {
     go3270.SetCodepage(go3270.Codepage1047())
 }
 ```
+
+But with the new codepage detection support, you shouldn't rely on the default codepage: you should always pass the `DevInfo.Codepage()` value to the `ShowScreenOpts()` function or as the last optional argument to the `HandleScreen()` or `HandleScreenAlt()` functions. The global default should only be a fallback if the client code page isn't detected correctly.
 
 Additionally, most characters from the "graphic escape" code page 310 are supported in all of the go3270-provided codepage implementations. Correct display on the client will depend on its support of graphic escape and correct characters being available in its font. Use the corresponding Unicode characters in your Go UTF-8 strings and they will be sent as the EBCDIC two-byte sequence of 0x08 followed by the position in code page 310. GE sequences are also processed on incoming field values.
 
