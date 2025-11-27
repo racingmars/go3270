@@ -480,17 +480,30 @@ func getCodepageID(buf []byte) int {
 		return 0
 	}
 
-	// Descriptor length -- and do we have at least one descriptor?
+	// Descriptor length
 	dl := int(buf[10])
-	if len(buf) < 11+dl {
-		return 0
+
+	// There may be more than one descriptors, and we need to find the first
+	// one with local ID 0.
+	pos := 11 // first descriptor
+	for {
+		if len(buf) < pos+dl {
+			// No more descriptors and we haven't found anything yet
+			return 0
+		}
+
+		if buf[pos] != 0 {
+			// not the descriptor we're looking for, try the next one
+			pos += dl
+			continue
+		}
+
+		// This is the first descriptor we've seen with ID 0, we'll use it.
+		// No matter how long the descriptor is, the code page will 2-byte big
+		// endian integer in the last two bytes.
+		cpid := int(buf[pos+dl-2])<<8 + int(buf[pos+dl-1])
+		return cpid
 	}
-
-	// No matter how long the descriptor is, the code page will 2-byte big
-	// endian integer in the last two bytes.
-	cpid := int(buf[11+dl-2])<<8 + int(buf[11+dl-1])
-
-	return cpid
 }
 
 // getRPGNames checks the "Query Reply (RPQ NAMES)" response to see if the
