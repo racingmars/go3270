@@ -410,22 +410,15 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 		}
 	}
 
-	switch cpid {
-	case 37:
-		// If x3270 family, assume that this is really the default "bracket"
-		// codepage, which reports as 37, not true CP37.
-		if isx3270 {
+	if cpfunc, ok := codepageToFunction[cpid]; ok {
+		codepage = cpfunc()
+
+		// But if x3270 family, assume that this is really the default
+		// "bracket" codepage, which reports as 37, not true CP37.
+		if cpid == 37 && isx3270 {
 			codepage = CodepageBracket()
-		} else {
-			codepage = Codepage037()
 		}
-	case 924:
-		codepage = Codepage924()
-	case 1047:
-		codepage = Codepage1047()
-	case 1140:
-		codepage = Codepage1140()
-	default:
+	} else {
 		// nil codepage will be accepted in ScreenOpts to default to the
 		// global default codepage.
 		codepage = nil
