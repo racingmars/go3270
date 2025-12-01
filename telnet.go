@@ -360,7 +360,12 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 		return nil, err
 	}
 	if n != 1 || aid[0] != byte(aidQueryResponse) {
-		return nil, ErrTelnetError
+		// the VM telnet client responds with another Do Binary Transmission
+		// telnet option for some reason... too primitive to know about
+		// structured field queries? If we're not getting the kind of reply
+		// we're expecting, we'll return whatever we're already assuming.
+		flushConnection(conn, 50*time.Millisecond)
+		return &deviceInfo{24, 80, termtype, nil}, nil
 	}
 
 	// There are an arbitrary number of query reply structured fields. We are
