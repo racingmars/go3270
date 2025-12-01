@@ -101,17 +101,20 @@ func handle(conn net.Conn) {
 
 	fieldValues := make(map[string]string)
 
-	if devinfo.Codepage() == nil {
-		fieldValues["codepage"] = "(unknown)"
-	} else {
-		fieldValues["codepage"] = devinfo.Codepage().ID()
-	}
-
 	var response go3270.Response
 
 	// We will loop forever until the user quits with PF3
 mainLoop:
 	for {
+
+		// Need to set the codepage display field value each time through the
+		// loop so it persists between screen1->screen2->screen1 navigation.
+		if devinfo.Codepage() == nil {
+			fieldValues["codepage"] = "(unknown)"
+		} else {
+			fieldValues["codepage"] = devinfo.Codepage().ID()
+		}
+
 	screen1Loop:
 		for {
 			// loop until the user passes input validation, or quits
