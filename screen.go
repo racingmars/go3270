@@ -54,6 +54,24 @@ type Field struct {
 	// is the default (i.e. no) highlighting.
 	Highlighting Highlight
 
+	// AttributeOnly will cause this "field" (which won't really be a new
+	// field) to use the SA (Set Attribute) 3270 command to change the color
+	// and highlighting of the text WITHOUT starting a new field. You can
+	// create a field at Row 5, Column 10, with AttributeOnly true, and the
+	// text will start in Roe 5, Column 10 and not skip a space to column 11
+	// like a new field would when AttributeOnly is false.
+	//
+	// If AttributeOnly is true, the Write, Autoskip, Intense, Hidden, and
+	// NumericOnly properties will have no effect. Only Highlighting and Color
+	// will affect the output, and will both default to Default (e.g. default
+	// highlighting and default color) if not specificed in this field.
+	//
+	// After using AttributeOnly to change color and highlighting, you may
+	// need to explicitly use another AttributeOnly "field" to reset to
+	// defaults, a regular (AttributeOnly = false) field may not end the
+	// attributes. (See example1.)
+	AttributeOnly bool
+
 	// Name is the name of this field, which is used to get the user-entered
 	// data. All writeable fields on a screen must have a unique name.
 	// Protected fields may also have a name to populate them dynamically when
@@ -355,9 +373,21 @@ func sba(row, col, cols int) []byte {
 }
 
 // buildField will return either an sf or sfe command depending for the
-// field.
+// field, or an sa if only setting attributes.
 func buildField(f Field) []byte {
 	var buf bytes.Buffer
+
+	if f.AttributeOnly {
+		buf.WriteByte(0x28) // sa - "set attribute"
+		// We will always set both highlighting and color bytes
+		buf.WriteByte(0x41)
+		buf.WriteByte(byte(f.Highlighting))
+		buf.WriteByte(0x28) // sa - "set attribute"
+		buf.WriteByte(0x42)
+		buf.WriteByte(byte(f.Color))
+		return buf.Bytes()
+	}
+
 	if f.Color == DefaultColor && f.Highlighting == DefaultHighlight {
 		// this is a traditional field, issue a normal sf command
 		buf.WriteByte(0x1d) // sf - "start field"

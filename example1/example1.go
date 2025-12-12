@@ -40,9 +40,19 @@ var screen1 = go3270.Screen{
 	{Row: 8, Col: 6, Intense: true, Content: "enter"},
 	{Row: 8, Col: 12, Content: "to submit your name."},
 	{Row: 10, Col: 0, Intense: true, Color: go3270.Red, Name: "errormsg"}, // a blank field for error messages
-	{Row: 14, Col: 0, Content: "Detected code page:"},
-	{Row: 14, Col: 20, Name: "codepage"},
-	{Row: 15, Col: 0, Content: "The following should be left and right square brackets: [ ]"},
+
+	// Demonstrate the AttributeOnly property:
+	{Row: 12, Col: 0, Content: "Demonstration of AttributeOnly to change format without a new field:"},
+	{Row: 13, Col: 1, AttributeOnly: true, Color: go3270.Green, Content: "████"},
+	{Row: 13, Col: 5, AttributeOnly: true, Color: go3270.Yellow, Content: "████"},
+	{Row: 13, Col: 9, AttributeOnly: true, Color: go3270.Red, Content: "████"},
+	{Row: 13, Col: 13, AttributeOnly: true, Color: go3270.Red, Highlighting: go3270.Blink, Content: "████"},
+	// When using extended attributes, need to explicitly reset to defaults, the next field won't necessarily clear the attributes out.
+	{Row: 13, Col: 17, AttributeOnly: true, Color: go3270.DefaultColor, Highlighting: go3270.DefaultHighlight},
+
+	{Row: 15, Col: 0, Content: "Detected code page:"},
+	{Row: 15, Col: 20, Name: "codepage"},
+	{Row: 16, Col: 0, Content: "The following should be left and right square brackets: [ ]"},
 	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
 
