@@ -41,6 +41,10 @@ type DevInfo interface {
 	// default codepage).
 	Codepage() Codepage
 
+	// SupportsGE returns true if the client indicated it supports graphic
+	// escape to code page 310.
+	SupportsGE() bool
+
 	// Private version of AltDimensions() so callers can't fake us out; only
 	// real implementations returned by NegotiateTelnet() will work.
 	altDimensions() (rows, cols int)
@@ -293,6 +297,7 @@ var modelRegex = regexp.MustCompile(`^IBM-\d{4}-([2-5])`)
 
 func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 	var rows, cols, cpid int
+	var hasGE bool
 	var codepage Codepage
 	var isx3270 bool
 
@@ -355,7 +360,7 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 		// Timeout. In this case, we'll assume it's because the client didn't
 		// reply to our query command. In that case, we'll return whatever
 		// we're already assuming.
-		return &deviceInfo{24, 80, termtype, nil}, nil
+		return &deviceInfo{24, 80, termtype, nil, false}, nil
 	} else if err != nil {
 		return nil, err
 	}
@@ -365,7 +370,7 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 		// structured field queries? If we're not getting the kind of reply
 		// we're expecting, we'll return whatever we're already assuming.
 		flushConnection(conn, 50*time.Millisecond)
-		return &deviceInfo{24, 80, termtype, nil}, nil
+		return &deviceInfo{24, 80, termtype, nil, false}, nil
 	}
 
 	// There are an arbitrary number of query reply structured fields. We are
@@ -404,7 +409,7 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 			}
 		} else if buf[0] == 0x81 && buf[1] == 0x85 {
 			// Character Sets
-			cpid = getCodepageID(buf)
+			cpid, hasGE = getCodepageID(buf)
 		} else if buf[0] == 0x81 && buf[1] == 0xA1 {
 			// RPQ Names. We use this  to determine if the client is x3270
 			// family.
@@ -429,7 +434,7 @@ func makeDeviceInfo(conn net.Conn, termtype string) (DevInfo, error) {
 		codepage = nil
 	}
 
-	return &deviceInfo{rows, cols, termtype, codepage}, nil
+	return &deviceInfo{rows, cols, termtype, codepage, hasGE}, nil
 }
 
 // getUsableArea processes the "Query Reply (Usable Area)" response to return
@@ -465,43 +470,52 @@ func getUsableArea(buf []byte) (rows, cols int, err error) {
 }
 
 // getCodepageID processes the "Query Reply (Character Sets)" response to
-// return the integer code page number if present. If unable, returns 0. The
-// byte slice passed in to buf must begin with {0x81, 0x85}.
-func getCodepageID(buf []byte) int {
+// return the integer code page number if present. Also returns a boolean
+// indicating if graphic escape to code page 310 is supported. If unable,
+// returns 0. The byte slice passed in to buf must begin with {0x81, 0x85}.
+func getCodepageID(buf []byte) (int, bool) {
 	// Initial validity check.
 	if len(buf) < 11 || buf[0] != 0x81 || buf[1] != 0x85 {
-		return 0
+		return 0, false
 	}
 
 	// If the GF bit is not set, no point in continuing.
 	if buf[2]&(1<<1) != 1<<1 {
-		return 0
+		return 0, false
 	}
+
+	// ALT flag = graphic escape supported
+	hasGE := buf[2]&(1<<7) == 1<<7
 
 	// Descriptor length
 	dl := int(buf[10])
 
-	// There may be more than one descriptors, and we need to find the first
-	// one with local ID 0.
+	// There may be more than one descriptors, and we need to find local ID 0,
+	// and possibly local ID 1 (the alternate codepage).
+	var primaryCPID, altCPID int
 	pos := 11 // first descriptor
 	for {
 		if len(buf) < pos+dl {
-			// No more descriptors and we haven't found anything yet
-			return 0
+			// No more descriptors
+			break
 		}
 
-		if buf[pos] != 0 {
-			// not the descriptor we're looking for, try the next one
-			pos += dl
-			continue
-		}
-
-		// This is the first descriptor we've seen with ID 0, we'll use it.
-		// No matter how long the descriptor is, the code page will 2-byte big
-		// endian integer in the last two bytes.
+		// CPID of this descriptor. No matter how long the descriptor is, the
+		// code page will be 2-byte big endian integer in the last two bytes.
 		cpid := int(buf[pos+dl-2])<<8 + int(buf[pos+dl-1])
-		return cpid
+
+		// First byte of the descriptor is the local ID; 0 is the base set and
+		// 1 is the alternate (graphic escape) set.
+		if buf[pos] == 0 && primaryCPID == 0 {
+			primaryCPID = cpid
+		} else if buf[pos] == 1 {
+			altCPID = cpid
+		}
+
+		pos += dl
 	}
+
+	return primaryCPID, hasGE && altCPID == 310
 }
 
 // getRPGNames checks the "Query Reply (RPQ NAMES)" response to see if the
@@ -656,6 +670,7 @@ type deviceInfo struct {
 	rows, cols int
 	termtype   string
 	codepage   Codepage
+	hasGE      bool
 }
 
 func (d *deviceInfo) AltDimensions() (rows, cols int) {
@@ -672,4 +687,8 @@ func (d *deviceInfo) altDimensions() (rows, cols int) {
 
 func (d *deviceInfo) Codepage() Codepage {
 	return d.codepage
+}
+
+func (d *deviceInfo) SupportsGE() bool {
+	return d.hasGE
 }

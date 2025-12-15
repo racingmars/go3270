@@ -53,6 +53,8 @@ var screen1 = go3270.Screen{
 	{Row: 15, Col: 0, Content: "Detected code page:"},
 	{Row: 15, Col: 20, Name: "codepage"},
 	{Row: 16, Col: 0, Content: "The following should be left and right square brackets: [ ]"},
+	{Row: 17, Col: 0, Content: "Graphic escape support:"},
+	{Row: 17, Col: 24, Name: "gesupport"},
 	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
 
@@ -124,6 +126,7 @@ mainLoop:
 		} else {
 			fieldValues["codepage"] = devinfo.Codepage().ID()
 		}
+		fieldValues["gesupport"] = fmt.Sprintf("%v", devinfo.SupportsGE())
 
 	screen1Loop:
 		for {

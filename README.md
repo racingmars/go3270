@@ -88,7 +88,7 @@ func init() {
 
 With the new codepage detection support, you shouldn't typically rely on the default codepage: you should always pass the `DevInfo.Codepage()` value to the `ShowScreenOpts()` function or as the last optional argument to the `HandleScreen()` or `HandleScreenAlt()` functions. The global default should only be a fallback if the client code page isn't detected correctly.
 
-Additionally, most characters from the "graphic escape" code page 310 are supported in all of the go3270-provided codepage implementations. Correct display on the client will depend on its support of graphic escape and correct characters being available in its font. Use the corresponding Unicode characters in your Go UTF-8 strings and they will be sent as the EBCDIC two-byte sequence of 0x08 followed by the position in code page 310. GE sequences are also processed on incoming field values.
+Additionally, most characters from the "graphic escape" code page 310 are supported in all of the go3270-provided codepage implementations. Correct display on the client will depend on its support of graphic escape and correct characters being available in its font. The `DevInfo.SupportsGE()` function returns a boolean indicating that the client supports the graphic escape alternate code page. Use the corresponding Unicode characters in your Go UTF-8 strings and they will be sent as the EBCDIC two-byte sequence of 0x08 followed by the position in code page 310. GE sequences are also processed on incoming field values.
 
 3270 information
 ----------------
