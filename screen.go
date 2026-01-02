@@ -27,6 +27,12 @@ type Field struct {
 	// Text is the content of the field to display.
 	Content string
 
+	// PositionOnly will use a Set Buffer Address (SBA) command to move the
+	// cursor to the position, but not insert a new attribute byte. The only
+	// properties of the Field that will apply if PositionOnly is true are:
+	// Row, Col, Content, Name. Others will be silently ignored.
+	PositionOnly bool
+
 	// Write allows the user to edit the value of the field.
 	Write bool
 
@@ -316,7 +322,9 @@ func showScreenInternal(screen Screen, values map[string]string,
 		}
 
 		b.Write(sba(fld.Row, fld.Col, cols))
-		b.Write(buildField(fld))
+		if !fld.PositionOnly {
+			b.Write(buildField(fld))
+		}
 
 		// Use fld.Content, unless the field is named and appears in the
 		// value map.

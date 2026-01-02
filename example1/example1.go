@@ -55,6 +55,11 @@ var screen1 = go3270.Screen{
 	{Row: 16, Col: 0, Content: "The following should be left and right square brackets: [ ]"},
 	{Row: 17, Col: 0, Content: "Graphic escape support:"},
 	{Row: 17, Col: 24, Name: "gesupport"},
+
+	// Can use PositionOnly attribute to place text beginning at a specific
+	// position without introducing a new attribute byte.
+	{Row: 19, Col: 0, PositionOnly: true, Content: "This text starts in first column"},
+
 	{Row: 22, Col: 0, Content: "PF3 Exit"},
 }
 
